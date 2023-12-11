@@ -1,0 +1,23 @@
+[tool.poetry]
+name = "pnorm"
+version = "0.0.0"
+description = "(Postgres) Not an ORM"
+authors = ["Alex Rudolph <alex3rudolph@gmail.com>"]
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.11"
+psycopg2-binary = "^2.9.9"
+rcheck = "^0.0.9"
+pydantic = "^2.5.2"
+click = "^8.1.7"
+pyyaml = "^6.0.1"
+
+
+[tool.poetry.group.dev.dependencies]
+isort = "^5.13.0"
+ruff = "^0.1.7"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
