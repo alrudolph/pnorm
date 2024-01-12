@@ -12,27 +12,43 @@ from typing import (
     Type,
     TypeVar,
     cast,
+    overload
 )
 
 import psycopg2
+import psycopg2.extras as extras
 from psycopg2._psycopg import connection as Connection
 from psycopg2._psycopg import cursor as Cursor
 from psycopg2.extras import RealDictCursor, RealDictRow
-from pydantic import BaseModel
+from pydantic import AliasChoices, BaseModel, Field
 from rcheck import r
 
 T = TypeVar("T", bound=BaseModel)
 
-QueryParams = list[Any] | dict[str, Any]
+QueryParams = Mapping[str, Any]
 ParamType = QueryParams | BaseModel
 
 
+class NoRecordsReturnedException(Exception):
+    ...
+
+
+class MultipleRecordsReturnedException(Exception):
+    ...
+
+
 class PostgresCredentials(BaseModel):
-    dbname: str = "postgres"
+    dbname: str = Field(
+        default="postgres",
+        validation_alias=AliasChoices("dbname", "database"),
+    )
     user: str
     password: str
     host: str
     port: int = 5432
+
+    class Config:
+        extra = "forbid"
 
 
 def connection_not_created() -> Never:
@@ -95,7 +111,6 @@ class SingleCommitCursor:
     def close(self) -> None:
         ...
 
-
 class PostgresClient:
     def __init__(
         self,
@@ -106,9 +121,6 @@ class PostgresClient:
         self.connection: Connection | None = None
         self.auto_create_connection = auto_create_connection
         self.cursor: SingleCommitCursor | TransactionCursor = SingleCommitCursor(self)
-
-    def is_connected(self) -> bool:
-        return self.connection is not None
 
     def create_connection(self) -> None:
         if self.connection is not None:
@@ -136,55 +148,130 @@ class PostgresClient:
     def end_transaction(self) -> None:
         self.cursor.commit()
         self.cursor = SingleCommitCursor(self)
-
+    
     def get(
         self,
         return_model: Type[T],
         query: str,
         params: Optional[ParamType] = None,
+        default: T | None = None,
         combine_into_return_model: bool = False,
-    ) -> T | None:
+    ) -> T:
+        """Always returns exactly one record or raises an exception
+        
+        This method should be used by default when expecting exactly one row to
+        be returned from the SQL query, such as when selecting an object by its
+        unique id.
+        
+        Parameters
+        ----------
+        return_model : Type[T of BaseModel]
+            Pydantic model to marshall the SQL query results into
+        query : str
+            SQL query to execute
+        params : Optional[Mapping[str, Any] | BaseModel] = None
+            Named parameters for the SQL query
+        default: T of BaseModel | None = None
+            The default value to return if no rows are returned
+        combine_into_return_model : bool = False
+            Whether to combine the params mapping or pydantic model with the 
+            result of the query into the return_model
+        
+        Raises
+        ------
+        NoRecordsReturnedException
+            When the query did not result in returning a record and no default 
+            was given
+        MultipleRecordsReturnedException
+            When the query returns at least two records
+            
+        Returns
+        -------
+        get : T of BaseModel
+            Results of the SQL query marshalled into the return_model Pydantic model
+
+        Examples
+        --------
+        >>>
+        >>>    
+        >>>
+        """
         query = r.check_str("query", query)
-        query_params = self._get_params(params)
-        close_connection_after = False
+        query_params = self._get_params("Query Params", params)
+        
+        with self._handle_auto_connection():
+            with self.cursor(self.connection) as cursor:
+                cursor.execute(query, query_params)
+                get = cast(list[RealDictRow], cursor.fetchmany(2))
 
-        if self.auto_create_connection:
-            if self.connection is None:
-                self.create_connection()
-                close_connection_after = True
-        elif self.connection is None:
-            connection_not_created()
+        if len(get) >= 2:
+            raise MultipleRecordsReturnedException(f"Received two or more records for query: {query}")
 
-        with self.cursor(self.connection) as cursor:
-            cursor.execute(query, query_params)
-            result = cast(RealDictRow, cursor.fetchone())
-
-        if close_connection_after:
-            self.close_connection()
-
-        if len(result) == 0:
-            return None
-
-        if combine_into_return_model:
-            return self._combine_into_return(return_model, params, result)
-
-        return return_model(**result)
-
-    def _combine_into_return(
+        if len(get) == 0:
+            if default is None:
+                raise NoRecordsReturnedException(f"Did not receive any records for query: {query}")
+            
+            single = default
+        else:
+            single = get[0]
+        
+        return self._combine_into_return(
+            return_model,
+            single,
+            params if combine_into_return_model else None,
+        )
+            
+    @overload
+    def find(
         self,
         return_model: Type[T],
-        params: ParamType | None,
-        result: RealDictRow,
+        query: str,
+        params: Optional[ParamType] = None,
+        default: None = None,
+        combine_into_return_model: bool = False,
+    ) -> T | None:
+        ...
+            
+    @overload
+    def find(
+        self,
+        return_model: Type[T],
+        query: str,
+        params: Optional[ParamType] = None,
+        default: T = ...,
+        combine_into_return_model: bool = False,
     ) -> T:
-        if params is not None:
-            if isinstance(params, BaseModel):
-                result.update(params.model_dump())
-            elif isinstance(params, dict):
-                result.update(params)
-            else:
-                raise Exception()
+        ...
+        
+    def find(
+        self,
+        return_model: Type[T],
+        query: str,
+        params: Optional[ParamType] = None, # todo: or BaseModel?
+        default: T | None = None,
+        combine_into_return_model: bool = False,
+    ) -> T | None:
+        """Return the first result or None
+        """
+        query = r.check_str("query", query)
+        query_params = self._get_params("Query Params", params)
+        
+        with self._handle_auto_connection():
+            with self.cursor(self.connection) as cursor:
+                cursor.execute(query, query_params)
+                result = cast(RealDictRow | None, cursor.fetchone())
 
-        return return_model(**result)
+        if result is None or len(result) == 0:
+            if default is None:
+                return None
+            
+            result = default
+
+        return self._combine_into_return(
+            return_model,
+            result,
+            params if combine_into_return_model else None,
+        )
 
     def select(
         self,
@@ -192,65 +279,103 @@ class PostgresClient:
         query: str,
         params: Optional[ParamType] = None,
     ) -> Sequence[T]:
+        """Return all rows
+        """
         query = r.check_str("query", query)
-        query_params = self._get_params(params)
-        close_connection_after = False
+        query_params = self._get_params("Query Params", params)
 
-        if self.auto_create_connection:
-            if self.connection is None:
-                self.create_connection()
-                close_connection_after = True
-        elif self.connection is None:
-            connection_not_created()
-
-        with self.cursor(self.connection) as cursor:
-            cursor.execute(query, query_params)
-            results = cast(list[RealDictRow], cursor.fetchall())
-
-        if close_connection_after:
-            self.close_connection()
+        with self._handle_auto_connection():
+            with self.cursor(self.connection) as cursor:
+                cursor.execute(query, query_params)
+                results = cast(list[RealDictRow], cursor.fetchall())
 
         if len(results) == 0:
             return tuple()
 
-        return tuple(return_model(**row) for row in results)
-
-    def execute(self, query: str, params: Optional[ParamType] = None) -> None:
+        return tuple(self._combine_into_return(return_model, row) for row in results)
+    
+    # todo: select using fetchmany for pagination
+    
+    def execute(
+        self,
+        query: str,
+        params: Optional[ParamType] = None,
+    ) -> None:
+        """Execute a SQL query
+        """
         query = r.check_str("query", query)
-        query_params = self._get_params(params)
-        close_connection_after = False
+        query_params = self._get_params("Query Params", params)
 
+        with self._handle_auto_connection():
+            with self.cursor(self.connection) as cursor:
+                cursor.execute(query, query_params)
+
+    def execute_values(
+        self,
+        query: str,
+        values: Sequence[BaseModel] | None = None,
+    ) -> None:
+        """Execute a sql query with values
+        """
+        # todo could this just be a part of execute
+        # todo does this method also need params for the query?
+        query = r.check_str("query", query)
+
+        if values is None:
+            data = self._get_params(values)
+        elif isinstance(values[0], tuple):
+            data = values
+        else:
+            data = [
+                tuple(self._get_params("Query params", v).values()) 
+                for v in values
+            ]
+            
+        with self._handle_auto_connection():
+            with self.cursor(self.connection) as cursor:
+                extras.execute_values(cursor, query, data)
+
+    def _combine_into_return(
+        self,
+        return_model: Type[T],
+        result: dict[str, Any] | BaseModel,
+        params: ParamType | None = None,
+    ) -> T:
+        result_dict = self._get_params("Query Result", result)
+    
+        if params is not None:
+            result_dict.update(self._get_params("Query Params", params))
+    
+        try:
+            return return_model(**result_dict)
+        except Exception as e:
+            # todo: give helpful message 
+            raise e
+    
+    def _get_params(self, name: str, params: ParamType | None) -> dict[str, Any]:
+        if params is None:
+            return {}
+
+        if isinstance(params, BaseModel):
+            params = params.model_dump()
+
+        return cast(dict[str, Any], r.check_mapping(name, params, keys_of=str))
+
+    @contextmanager
+    def _handle_auto_connection(self) -> Generator[None, None, None]:
+        close_connection_after_use = False
+        
         if self.auto_create_connection:
             if self.connection is None:
                 self.create_connection()
-                close_connection_after = True
+                close_connection_after_use = True
         elif self.connection is None:
             connection_not_created()
+            
+        yield
 
-        with self.cursor(self.connection) as cursor:
-            cursor.execute(query, query_params)
-
-        if close_connection_after:
+        if close_connection_after_use:
             self.close_connection()
-
-    def _get_params(self, params: ParamType | None) -> QueryParams:
-        if params is None:
-            return []
-
-        if isinstance(params, BaseModel):
-            return params.model_dump()
-
-        return params
-
-    @contextmanager
-    def transaction(
-        self,
-    ) -> Generator[SingleCommitCursor | TransactionCursor, None, None]:
-        self.start_transaction()
-
-        yield self.cursor
-
-        self.end_transaction()
 
 
 class Session:
@@ -280,50 +405,38 @@ class Session:
         self.client.auto_create_connection = self.original_auto_create_connection
 
 
-# sql = PostgresClient(
-#     PostgresCredentials(
-#         host="localhost",
-#         port=5436,
-#         user="postgres",
-#         password="postgres",
-#     )
-# )
+@contextmanager
+def create_session(client: PostgresClient) -> Generator[PostgresClient, None, None]:
+    original_auto_create_connection = client.auto_create_connection
+    client.auto_create_connection = False
+    close_connection_after_use = False
+    
+    if client.connection is None:
+        client.create_connection()
+        close_connection_after_use = True
+        
+    try:
+        yield client
+    except:
+        client.rollback()
+        raise
+    finally:
+        if client.connection is not None and close_connection_after_use:
+            client.close_connection()
+            
+        client.auto_create_connection = original_auto_create_connection
+    
 
+@contextmanager
+def create_transaction(
+    client: PostgresClient,
+) -> Generator[SingleCommitCursor | TransactionCursor, None, None]:
+    client.start_transaction()
 
-# class Users(BaseModel):
-#     username: str
-#     email: str
-
-
-# class Query(BaseModel):
-#     color: str
-
-
-# mek = sql.get(
-#     Users,
-#     "select username, email from test.users where favorite_color = %(color)s",
-#     Query(color="green"),
-# )
-# print(mek)
-
-# with Session(sql) as session:
-#     with session.transaction():
-#         mek = session.get(
-#             Users,
-#             "select username, email from test.users where favorite_color = %(color)s",
-#             Query(color="green"),
-#         )
-#         alex = sql.get(
-#             Users,
-#             "select username, email from test.users where favorite_color = %s",
-#             ("purple",),
-#         )
-
-#     print(mek, alex)
-
-#     all_people = session.select(
-#         Users,
-#         "select username, email from test.users",
-#     )
-
-#     print(all_people)
+    try:
+        yield client.cursor
+    except:
+        client.rollback()
+        raise
+    finally:
+        client.end_transaction()

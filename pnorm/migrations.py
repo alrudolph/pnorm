@@ -3,14 +3,13 @@ import os
 import sys
 from datetime import datetime
 from glob import glob
-from importlib import import_module
+from importlib import import_module, reload
 from pathlib import Path
 from typing import Literal, Type, cast
 
 import yaml
+from pnorm.main import PostgresClient, PostgresCredentials, Session, create_transaction
 from pydantic import BaseModel
-
-from pnorm.main import PostgresClient, PostgresCredentials, Session
 
 
 class BaseUsers(BaseModel):
@@ -98,7 +97,7 @@ def base_migration(client: PostgresClient):
     if exists_check is not None and exists_check.exists:
         return
 
-    with client.transaction():
+    with create_transaction(client):
         client.execute(
             "create table version_log ("
             "  from_version integer null"
@@ -124,12 +123,30 @@ def base_migration(client: PostgresClient):
 
 def load_migration(migration: MigrationMetadata) -> Type[Migration]:
     # sys.path.append(str(file_path.parent.parent))
-    sys.path.append(str(migration.path))
-    module = import_module("migration")
+    old_path = sys.path
 
-    for cls in module.__dict__.values():
+    sys.path = [str(migration.path)]
+
+    module = import_module("migration", migration.path.name)
+    module = reload(module)
+    classes = module.__dict__.values()
+
+    output = None
+
+    for cls in classes:
         if inspect.isclass(cls) and issubclass(cls, Migration) and cls != Migration:
-            return cls
+            print("LOADING MODULE", cls.__name__, "FROM", migration.path)
+            # sys.path.pop()
+            # sys.path = old_path
+            # return cls
+
+            output = cls
+
+    if output is not None:
+        return output
+
+    sys.path = old_path
+    raise Exception()
 
 
 def main(folder_path: Path, credentials: PostgresCredentials):
@@ -173,37 +190,44 @@ def main(folder_path: Path, credentials: PostgresCredentials):
         if current_version is None:
             raise Exception()
 
-    if expected_version == current_version.to_version:
+    print("CURRENT VERSION", current_version, "\n\n------------")
+    previous_version = current_version.to_version
+
+    if expected_version == previous_version:
         return
-    elif expected_version > current_version.to_version:
+    elif expected_version > previous_version:
         versions_to_upgrade = [
             m
             for m in migrations
-            if m.config.version > current_version.to_version
+            if m.config.version > previous_version
             and m.config.version <= expected_version
         ]
         versions_to_upgrade = sorted(
             versions_to_upgrade, key=lambda x: x.config.version
         )
 
-        previous_version = current_version
+        print("VERSIONS TO UPGRADE", versions_to_upgrade)
 
         for version in versions_to_upgrade:
+            print("from ", previous_version, "to ", version.config.version)
             migration = load_migration(version)
             migration(
                 session, version.config.version, version.config.description
-            ).upgrade(previous_version.to_version)
-            previous_version = version
-    elif expected_version < current_version.to_version:
+            ).upgrade(previous_version)
+            previous_version = version.config.version
+    elif expected_version < previous_version:
+        print(migrations, expected_version, previous_version)
         versions_to_upgrade = [
             m
             for m in migrations
-            if m.config.version <= current_version.to_version
+            if m.config.version <= previous_version
             and m.config.version >= expected_version
         ]
         versions_to_upgrade = sorted(
             versions_to_upgrade, key=lambda x: -x.config.version
         )
+        print("------")
+        print(versions_to_upgrade)
 
         for version, next_version in zip(
             versions_to_upgrade[:-1], versions_to_upgrade[1:]
