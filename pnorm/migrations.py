@@ -8,8 +8,9 @@ from pathlib import Path
 from typing import Literal, Type, cast
 
 import yaml
-from pnorm.main import PostgresClient, PostgresCredentials, Session, create_transaction
 from pydantic import BaseModel
+
+from pnorm import PostgresClient, PostgresCredentials, Session, create_transaction
 
 
 class BaseUsers(BaseModel):

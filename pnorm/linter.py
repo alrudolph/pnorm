@@ -8,7 +8,7 @@ from typing import Any, Sequence, Type, cast
 from pydantic import BaseModel
 
 from pnorm import PostgresClient, PostgresCredentials, Session
-from pnorm.main import Session
+from pnorm.client import Session
 
 creds = PostgresCredentials(
     user="postgres",

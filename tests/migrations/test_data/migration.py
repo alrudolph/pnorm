@@ -1,5 +1,6 @@
-from pnorm.migrations import Migration
 from pydantic import BaseModel
+
+from pnorm.migrations import Migration
 
 
 class TestData(BaseModel):
@@ -21,21 +22,17 @@ class V1(Migration):
             "insert into test_data (test_method, test_name, value) values %s",
             [
                 TestData(
-                    test_method="get",
-                    test_name="test_simple_row_returned",
-                    value="1"
+                    test_method="get", test_name="test_simple_row_returned", value="1"
                 ),
                 TestData(
                     test_method="get",
                     test_name="test_combine_into_return_model",
-                    value="2"
+                    value="2",
                 ),
                 TestData(
-                    test_method="get",
-                    test_name="test_session_connection",
-                    value="3"
+                    test_method="get", test_name="test_session_connection", value="3"
                 ),
-            ]
+            ],
         )
         super().upgrade(from_version)
 

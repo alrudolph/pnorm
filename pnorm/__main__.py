@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any, Sequence, Type
 
 import click
+
 from pnorm import linter, migrations
 from pnorm.linter import PostgresCredentials
 

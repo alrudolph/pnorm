@@ -1,19 +1,27 @@
-from pnorm import Session, create_session, NoRecordsReturnedException
 import pytest
-from ..fixutres.client import client, PostgresClientCounter
-from ..schema import TestData
 from pydantic import BaseModel
+
+from pnorm import (
+    MultipleRecordsReturnedException,
+    NoRecordsReturnedException,
+    Session,
+    create_session,
+)
+
+from ..fixutres.client import PostgresClientCounter, client  # type: ignore
+from ..schema import TestData
+
 
 def test_simple_row_returned(client: PostgresClientCounter):
     assert client.connection is None
 
     row = client.get(
-        TestData, 
-        "select * from test_data where test_method = %(test_method)s and test_name = %(test_name)s", 
+        TestData,
+        "select * from test_data where test_method = %(test_method)s and test_name = %(test_name)s",
         {
             "test_method": "get",
             "test_name": "test_simple_row_returned",
-        }
+        },
     )
 
     assert row.test_method == "get"
@@ -22,24 +30,41 @@ def test_simple_row_returned(client: PostgresClientCounter):
     assert client.connection is None
     assert client.check_connections() == 1
 
+
 def test_no_rows_returned(client: PostgresClientCounter):
     assert client.connection is None
 
-    with pytest.raises(NoRecordsReturnedException):
+    with pytest.raises(MultipleRecordsReturnedException):
         client.get(
-            TestData, 
-            "select * from test_data where test_method = %(test_method)s and test_name = %(test_name)s", 
+            TestData,
+            "select * from test_data where test_method = %(test_method)s",
             {
                 "test_method": "get",
-                "test_name": "test_simple_row_returned_does_not_exist",
-            }
+            },
         )
         assert False
 
     assert client.connection is None
     assert client.check_connections() == 1
 
-# todo: test when two records returned
+
+def test_multiple_rows_returned(client: PostgresClientCounter):
+    assert client.connection is None
+
+    with pytest.raises(NoRecordsReturnedException):
+        client.get(
+            TestData,
+            "select * from test_data where test_method = %(test_method)s and test_name = %(test_name)s",
+            {
+                "test_method": "get",
+                "test_name": "test_simple_row_returned_does_not_exist",
+            },
+        )
+        assert False
+
+    assert client.connection is None
+    assert client.check_connections() == 1
+
 
 # test combine into return model
 def test_combine_into_return_model(client: PostgresClientCounter):
@@ -55,14 +80,16 @@ def test_combine_into_return_model(client: PostgresClientCounter):
 
     row = client.get(
         DataExtended,
-        "select * from test_data where test_method = %(test_method)s and test_name = %(test_name)s", 
-        Params(test_method="get", test_name="test_combine_into_return_model", other_value=1),
-        combine_into_return_model=True
+        "select * from test_data where test_method = %(test_method)s and test_name = %(test_name)s",
+        Params(
+            test_method="get", test_name="test_combine_into_return_model", other_value=1
+        ),
+        combine_into_return_model=True,
     )
 
     assert row.test_method == "get"
     assert row.test_name == "test_combine_into_return_model"
-    assert row.other_value == 1 # keeps existing data
+    assert row.other_value == 1  # keeps existing data
     assert row.value == "2"
     assert client.connection is None
     assert client.check_connections() == 1
@@ -70,17 +97,14 @@ def test_combine_into_return_model(client: PostgresClientCounter):
 
 def test_session_connection(client: PostgresClientCounter):
     assert client.connection is None
-    
+
     # todo: what happens if exception is raised (exception as part of sql or non part)
-    with create_session(client) as session:
+    with create_session(client):
         assert client.connection is not None
-        row = session.get(
+        row = client.get(
             TestData,
             "select * from test_data where test_method = %(test_method)s and test_name = %(test_name)s",
-            {
-                "test_method": "get",
-                "test_name": "test_session_connection"
-            },
+            {"test_method": "get", "test_name": "test_session_connection"},
         )
         assert row.test_method == "get"
         assert row.test_name == "test_session_connection"
@@ -88,20 +112,18 @@ def test_session_connection(client: PostgresClientCounter):
 
     assert client.connection is None
     assert client.check_connections() == 1
-    
+
+
 def test_session_connection_old(client: PostgresClientCounter):
     assert client.connection is None
-    
+
     # todo: what happens if exception is raised (exception as part of sql or non part)
     with Session(client) as session:
         assert client.connection is not None
         row = session.get(
             TestData,
             "select * from test_data where test_method = %(test_method)s and test_name = %(test_name)s",
-            {
-                "test_method": "get",
-                "test_name": "test_session_connection"
-            }
+            {"test_method": "get", "test_name": "test_session_connection"},
         )
         assert row.test_method == "get"
         assert row.test_name == "test_session_connection"
@@ -109,6 +131,7 @@ def test_session_connection_old(client: PostgresClientCounter):
 
     assert client.connection is None
     assert client.check_connections() == 1
+
 
 # test when in transaction works - but it has to commit anyways
 # what happens to things previously in the transaction?
