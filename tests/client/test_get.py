@@ -9,14 +9,14 @@ from pnorm import (
 )
 
 from ..fixutres.client import PostgresClientCounter, client  # type: ignore
-from ..schema import TestData
+from ..schema import DataModel
 
 
 def test_simple_row_returned(client: PostgresClientCounter):
     assert client.connection is None
 
     row = client.get(
-        TestData,
+        DataModel,
         "select * from test_data where test_method = %(test_method)s and test_name = %(test_name)s",
         {
             "test_method": "get",
@@ -36,7 +36,7 @@ def test_no_rows_returned(client: PostgresClientCounter):
 
     with pytest.raises(MultipleRecordsReturnedException):
         client.get(
-            TestData,
+            DataModel,
             "select * from test_data where test_method = %(test_method)s",
             {
                 "test_method": "get",
@@ -53,7 +53,7 @@ def test_multiple_rows_returned(client: PostgresClientCounter):
 
     with pytest.raises(NoRecordsReturnedException):
         client.get(
-            TestData,
+            DataModel,
             "select * from test_data where test_method = %(test_method)s and test_name = %(test_name)s",
             {
                 "test_method": "get",
@@ -75,14 +75,16 @@ def test_combine_into_return_model(client: PostgresClientCounter):
         test_name: str
         other_value: int
 
-    class DataExtended(TestData):
+    class DataExtended(DataModel):
         other_value: int
 
     row = client.get(
         DataExtended,
         "select * from test_data where test_method = %(test_method)s and test_name = %(test_name)s",
         Params(
-            test_method="get", test_name="test_combine_into_return_model", other_value=1
+            test_method="get",
+            test_name="test_combine_into_return_model",
+            other_value=1,
         ),
         combine_into_return_model=True,
     )
@@ -102,9 +104,12 @@ def test_session_connection(client: PostgresClientCounter):
     with create_session(client):
         assert client.connection is not None
         row = client.get(
-            TestData,
+            DataModel,
             "select * from test_data where test_method = %(test_method)s and test_name = %(test_name)s",
-            {"test_method": "get", "test_name": "test_session_connection"},
+            {
+                "test_method": "get",
+                "test_name": "test_session_connection",
+            },
         )
         assert row.test_method == "get"
         assert row.test_name == "test_session_connection"
@@ -121,9 +126,12 @@ def test_session_connection_old(client: PostgresClientCounter):
     with Session(client) as session:
         assert client.connection is not None
         row = session.get(
-            TestData,
+            DataModel,
             "select * from test_data where test_method = %(test_method)s and test_name = %(test_name)s",
-            {"test_method": "get", "test_name": "test_session_connection"},
+            {
+                "test_method": "get",
+                "test_name": "test_session_connection",
+            },
         )
         assert row.test_method == "get"
         assert row.test_name == "test_session_connection"

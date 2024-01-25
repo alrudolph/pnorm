@@ -4,13 +4,7 @@ from .types import *
 
 ...  # type: ignore
 
-from .cursors import *
-from .mapping_utilities import _combine_into_return  # type: ignore
-from .mapping_utilities import _get_params  # type: ignore
-
-...  # type: ignore
-
-from .client import *
+from .client import PostgresClient
 from .contexts import *
 
 # https://github.com/dagster-io/dagster/blob/master/python_modules/libraries/dagster-aws/dagster_aws/redshift/resources.py

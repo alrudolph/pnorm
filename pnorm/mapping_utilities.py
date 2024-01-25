@@ -9,7 +9,7 @@ from rcheck import r
 from pnorm import MarshallRecordException, ParamType, T
 
 
-def _get_params(name: str, params: Optional[ParamType]) -> dict[str, Any]:
+def get_params(name: str, params: Optional[ParamType]) -> dict[str, Any]:
     if params is None:
         return {}
 
@@ -19,15 +19,15 @@ def _get_params(name: str, params: Optional[ParamType]) -> dict[str, Any]:
     return cast(dict[str, Any], r.check_mapping(name, params, keys_of=str))
 
 
-def _combine_into_return(
+def combine_into_return(
     return_model: Type[T],
     result: dict[str, Any] | BaseModel,
     params: Optional[ParamType] = None,
 ) -> T:
-    result_dict = _get_params("Query Result", result)
+    result_dict = get_params("Query Result", result)
 
     if params is not None:
-        result_dict.update(_get_params("Query Params", params))
+        result_dict.update(get_params("Query Params", params))
 
     try:
         return return_model(**result_dict)

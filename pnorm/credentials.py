@@ -1,4 +1,4 @@
-from pydantic import AliasChoices, BaseModel, Field
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field
 
 
 class PostgresCredentials(BaseModel):
@@ -11,5 +11,4 @@ class PostgresCredentials(BaseModel):
     host: str
     port: int = 5432
 
-    class Config:
-        extra = "forbid"
+    model_config = ConfigDict(extra="forbid")
