@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
-from typing import Generator, Optional, Sequence, Type, cast, overload
+from typing import Any, Generator, Optional, Sequence, Type, cast, overload
 
 import psycopg2
 import psycopg2.extras as extras
@@ -33,6 +33,10 @@ class PostgresClient:
         self.connection: Connection | None = None
         self.auto_create_connection = auto_create_connection
         self.cursor: SingleCommitCursor | TransactionCursor = SingleCommitCursor(self)
+
+    def set_schema(self, schema: str):
+        schema = r.check_str("Schema", schema)
+        self.execute("set search_path to %(search_path)s", {"search_path": schema})
 
     def get(
         self,
@@ -93,6 +97,7 @@ class PostgresClient:
             msg = f"Received two or more records for query: {query}"
             raise MultipleRecordsReturnedException(msg)
 
+        single: dict[str, Any] | BaseModel
         if len(query_result) == 0:
             if default is None:
                 msg = f"Did not receive any records for query: {query}"
@@ -107,18 +112,7 @@ class PostgresClient:
             single,
             params if combine_into_return_model else None,
         )
-
-    @overload
-    def find(
-        self,
-        return_model: Type[T],
-        query: str,
-        params: Optional[ParamType] = None,
-        default: None = None,
-        combine_into_return_model: bool = False,
-    ) -> T | None:
-        ...
-
+        
     @overload
     def find(
         self,
@@ -129,12 +123,23 @@ class PostgresClient:
         combine_into_return_model: bool = False,
     ) -> T:
         ...
+        
+    @overload
+    def find(
+        self,
+        return_model: Type[T],
+        query: str,
+        params: Optional[ParamType] = None,
+        default: Optional[T] = None,
+        combine_into_return_model: bool = False,
+    ) -> T | None:
+        ...
 
     def find(
         self,
         return_model: Type[T],
         query: str,
-        params: Optional[ParamType] = None,  # todo: or BaseModel?
+        params: Optional[ParamType] = None,
         default: Optional[T] = None,
         combine_into_return_model: bool = False,
     ) -> T | None:
@@ -170,6 +175,7 @@ class PostgresClient:
         """
         query = r.check_str("query", query)
         query_params = get_params("Query Params", params)
+        query_result: RealDictRow | BaseModel | None
 
         with self._handle_auto_connection():
             with self.cursor(self.connection) as cursor:
@@ -288,6 +294,7 @@ class PostgresClient:
         >>>
         """
         query = r.check_str("query", query)
+        data: list[Any] | dict[str, Any] = []
 
         if values is None:
             data = get_params("Values", values)

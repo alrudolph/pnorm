@@ -9,12 +9,14 @@ from rcheck import r
 from pnorm import MarshallRecordException, ParamType, T
 
 
-def get_params(name: str, params: Optional[ParamType]) -> dict[str, Any]:
+def get_params(
+    name: str, params: Optional[ParamType], by_alias: bool = False
+) -> dict[str, Any]:
     if params is None:
         return {}
 
     if isinstance(params, BaseModel):
-        params = params.model_dump()
+        params = params.model_dump(by_alias=by_alias)
 
     return cast(dict[str, Any], r.check_mapping(name, params, keys_of=str))
 

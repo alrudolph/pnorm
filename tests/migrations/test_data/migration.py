@@ -22,7 +22,9 @@ class V1(Migration):
             "insert into test_data (test_method, test_name, value) values %s",
             [
                 TestData(
-                    test_method="get", test_name="test_simple_row_returned", value="1"
+                    test_method="get",
+                    test_name="test_simple_row_returned",
+                    value="1",
                 ),
                 TestData(
                     test_method="get",

@@ -8,7 +8,7 @@ from typing import Any, Sequence, Type, cast
 from pydantic import BaseModel
 
 from pnorm import PostgresClient, PostgresCredentials, Session
-from pnorm.client import Session
+from pnorm.contexts import Session
 
 creds = PostgresCredentials(
     user="postgres",
@@ -57,7 +57,7 @@ def parse_statements(file_path: Path, file_contents: str) -> list[Statement]:
 
     for node in ast.walk(tree):
         for child in ast.iter_child_nodes(node):
-            child.parent = node
+            setattr(child, "parent", node)
 
         # print(ast.dump(node))
 
@@ -77,8 +77,8 @@ def parse_statements(file_path: Path, file_contents: str) -> list[Statement]:
 
                 statements.append(
                     GetStatement(
-                        return_model=getattr(module, return_model.id),
-                        sql_statement=sql_statement.value,
+                        return_model=getattr(module, getattr(return_model, "id")),
+                        sql_statement=getattr(sql_statement, "value"),
                     )
                 )
 
@@ -88,7 +88,12 @@ def parse_statements(file_path: Path, file_contents: str) -> list[Statement]:
             ):
                 (return_model, sql_statement, *_) = function_args
 
-                statements.append(SelectStatement(sql_statement=sql_statement.value))
+                statements.append(
+                    SelectStatement(
+                        sql_statement=getattr(sql_statement, "value"),
+                        return_model=getattr(return_model, "id"),
+                    )
+                )
 
             case ast.Call(
                 func=ast.Attribute(attr="execute"),
@@ -98,8 +103,8 @@ def parse_statements(file_path: Path, file_contents: str) -> list[Statement]:
 
                 statements.append(
                     ExecuteStatement(
-                        return_model=return_model.id,
-                        sql_statement=sql_statement.value,
+                        # return_model=getattr(return_model, "id"),
+                        sql_statement=getattr(sql_statement, "value"),
                     )
                 )
 

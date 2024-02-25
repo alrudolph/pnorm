@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "pnorm"
-version = "0.0.0a"
+version = "0.0.0b"
 description = "(Postgres) Not an ORM"
 authors = ["Alex Rudolph <alex3rudolph@gmail.com>"]
 readme = "README.md"
@@ -9,17 +9,19 @@ repository = "https://github.com/alrudolph/pnorm"
 [tool.poetry.dependencies]
 python = "^3.11"
 psycopg2-binary = "^2.9.9"
-rcheck = "^0.0.9"
+rcheck = "^0.0.10"
 pydantic = "^2.5.2"
 click = "^8.1.7"
 pyyaml = "^6.0.1"
-
 
 [tool.poetry.group.dev.dependencies]
 isort = "^5.13.0"
 ruff = "^0.1.7"
 python-dotenv = "^1.0.0"
 pytest = "^7.4.4"
+mypy = "^1.8.0"
+types-psycopg2 = "^2.9.21.20240118"
+types-pyyaml = "^6.0.12.12"
 
 [build-system]
 requires = ["poetry-core"]
