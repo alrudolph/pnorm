@@ -37,7 +37,9 @@ class Session:
 
 
 @contextmanager
-def create_session(client: PostgresClient) -> Generator[None, None, None]:
+def create_session(
+    client: PostgresClient, *, schema: Optional[str] = None
+) -> Generator[None, None, None]:
     original_auto_create_connection = client.auto_create_connection
     client.auto_create_connection = False
     close_connection_after_use = False
@@ -45,6 +47,9 @@ def create_session(client: PostgresClient) -> Generator[None, None, None]:
     if client.connection is None:
         client.create_connection()
         close_connection_after_use = True
+
+    if schema is not None:
+        client.set_schema(schema)
 
     try:
         yield
