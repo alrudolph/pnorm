@@ -16,7 +16,7 @@ def get_params(
         return {}
 
     if isinstance(params, BaseModel):
-        params = params.model_dump(by_alias=by_alias)
+        params = params.model_dump(by_alias=by_alias, mode="json")
 
     return cast(dict[str, Any], r.check_mapping(name, params, keys_of=str))
 

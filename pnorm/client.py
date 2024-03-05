@@ -1,13 +1,15 @@
 from __future__ import annotations
 
+import json
 from contextlib import contextmanager
 from typing import (
-    TYPE_CHECKING,
+    Annotated,
     Any,
     Generator,
     Optional,
     Sequence,
     Type,
+    TypeVar,
     cast,
     overload,
 )
@@ -16,8 +18,8 @@ import psycopg2
 import psycopg2.extras as extras
 from psycopg2._psycopg import connection as Connection
 from psycopg2.extras import RealDictRow
-from psycopg2.sql import SQL, Composable, Composed, Identifier, Literal
-from pydantic import BaseModel
+from psycopg2.sql import Composable
+from pydantic import BaseModel, PlainSerializer
 from rcheck import r
 
 from pnorm import (
@@ -32,8 +34,12 @@ from pnorm import (
 from pnorm.cursors import SingleCommitCursor, TransactionCursor
 from pnorm.mapping_utilities import combine_into_return, get_params
 
-if TYPE_CHECKING:
-    from pnorm.model import Model
+U = TypeVar("U", dict[Any, Any] | None, list[Any] | None)
+
+PostgresJSON = Annotated[
+    U,
+    PlainSerializer(json.dumps, when_used="json-unless-none"),
+]
 
 
 class PostgresClient:
@@ -48,7 +54,7 @@ class PostgresClient:
         self.cursor: SingleCommitCursor | TransactionCursor = SingleCommitCursor(self)
 
     def set_schema(self, schema: str):
-        schema = r.check_str("Schema", schema)
+        schema = r.check_str("schema", schema)
         self.execute("set search_path to %(search_path)s", {"search_path": schema})
 
     def get(
@@ -98,7 +104,7 @@ class PostgresClient:
         >>>
         >>>
         """
-        query = r.check_str("query", query)
+        # query = r.check_str("query", query) # OR Composable
         query_params = get_params("Query Params", params)
 
         with self._handle_auto_connection():
@@ -186,7 +192,6 @@ class PostgresClient:
         >>>
         >>>
         """
-        query = r.check_str("query", query)
         query_params = get_params("Query Params", params)
         query_result: RealDictRow | BaseModel | None
 
@@ -237,7 +242,7 @@ class PostgresClient:
         >>>
         >>>
         """
-        query = r.check_str("query", query)
+        # query = r.check_str("query", query) # OR Composable
         query_params = get_params("Query Params", params)
 
         with self._handle_auto_connection():
@@ -286,6 +291,7 @@ class PostgresClient:
         query: str | Composable,
         values: Optional[Sequence[BaseModel]] = None,
         template: Optional[Sequence[str]] = None,
+        return_model: Optional[Type[T]] = None,
     ) -> None:
         """Execute a sql query with values
 
@@ -319,6 +325,16 @@ class PostgresClient:
         with self._handle_auto_connection():
             with self.cursor(self.connection) as cursor:
                 extras.execute_values(cursor, query, data, template)
+                
+                if return_model is None:
+                    return
+                
+                query_result = cast(list[RealDictRow], cursor.fetchall())
+
+        if len(query_result) == 0:
+            return tuple()
+
+        return tuple(combine_into_return(return_model, row) for row in query_result)
 
     def create_connection(self) -> None:
         if self.connection is not None:
@@ -362,32 +378,3 @@ class PostgresClient:
 
         if close_connection_after_use:
             self.close_connection()
-
-    def update_only(self, model: Model, *column_names: str):
-        for field in column_names:
-            field = r.check_str(f"column-{field}", field)
-
-            if not hasattr(model, field):
-                raise Exception()
-
-        set_fields = SQL(",").join(
-            [
-                SQL("{col_name} = {value}").format(
-                    col_name=Identifier(field_name),
-                    value=Literal(getattr(model, field_name)),
-                )
-                for field_name in column_names
-            ]
-        )
-
-        self.execute(
-            SQL(
-                "update {table_name} set {set_fields} where {id_col} = %(id_value)s"
-            ).format(
-                table_name=Identifier(model.pnorm_config.table_name),
-                # col_name=Identifier(field),
-                set_fields=set_fields,
-                id_col=Identifier(model.pnorm_config.id_column),
-            ),
-            {"id_value": getattr(model, model.pnorm_config.id_column)},
-        )
