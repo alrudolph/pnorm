@@ -1,16 +1,19 @@
 from __future__ import annotations
 
 import json
-from typing import Any, Optional, Type, cast
+from typing import Any, MutableMapping, Optional, Type, cast, overload
 
 from pydantic import BaseModel
 from rcheck import r
 
-from pnorm import MarshallRecordException, ParamType, T
+from pnorm import MarshallRecordException
+from pnorm.types import MappingT, ParamType, T
 
 
 def get_params(
-    name: str, params: Optional[ParamType], by_alias: bool = False
+    name: str,
+    params: Optional[ParamType],
+    by_alias: bool = False,
 ) -> dict[str, Any]:
     if params is None:
         return {}
@@ -21,11 +24,27 @@ def get_params(
     return cast(dict[str, Any], r.check_mapping(name, params, keys_of=str))
 
 
+@overload
 def combine_into_return(
-    return_model: Type[T],
-    result: dict[str, Any] | BaseModel,
+    return_model: type[T],
+    result: MutableMapping[str, Any] | BaseModel,
     params: Optional[ParamType] = None,
-) -> T:
+) -> T: ...
+
+
+@overload
+def combine_into_return(
+    return_model: type[MappingT],
+    result: MutableMapping[str, Any] | BaseModel,
+    params: Optional[ParamType] = None,
+) -> MappingT: ...
+
+
+def combine_into_return(
+    return_model: type[T] | type[MappingT],
+    result: MutableMapping[str, Any] | BaseModel,
+    params: Optional[ParamType] = None,
+) -> T | MappingT:
     result_dict = get_params("Query Result", result)
 
     if params is not None:

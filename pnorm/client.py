@@ -6,9 +6,9 @@ from typing import (
     Annotated,
     Any,
     Generator,
+    MutableMapping,
     Optional,
     Sequence,
-    Type,
     TypeVar,
     cast,
     overload,
@@ -26,13 +26,12 @@ from pnorm import (
     ConnectionAlreadyEstablishedException,
     MultipleRecordsReturnedException,
     NoRecordsReturnedException,
-    ParamType,
-    PostgresCredentials,
-    T,
-    connection_not_created,
 )
+from pnorm.credentials import CredentialsProtocol
 from pnorm.cursors import SingleCommitCursor, TransactionCursor
+from pnorm.exceptions import connection_not_created
 from pnorm.mapping_utilities import combine_into_return, get_params
+from pnorm.types import MappingT, ParamType, T
 
 U = TypeVar("U", dict[Any, Any] | None, list[Any] | None)
 
@@ -45,26 +44,46 @@ PostgresJSON = Annotated[
 class PostgresClient:
     def __init__(
         self,
-        credentials: PostgresCredentials,
-        auto_create_connection: bool = True,  # todo: rather default to false
+        credentials: CredentialsProtocol,
+        auto_create_connection: bool = True,
     ):
         self.credentials = credentials
         self.connection: Connection | None = None
         self.auto_create_connection = auto_create_connection
         self.cursor: SingleCommitCursor | TransactionCursor = SingleCommitCursor(self)
 
-    def set_schema(self, schema: str):
+    def set_schema(self, *, schema: str) -> None:
         schema = r.check_str("schema", schema)
         self.execute("set search_path to %(search_path)s", {"search_path": schema})
 
+    @overload
     def get(
         self,
-        return_model: Type[T],
+        return_model: type[MappingT],
         query: str | Composable,
         params: Optional[ParamType] = None,
         default: Optional[T] = None,
         combine_into_return_model: bool = False,
-    ) -> T:
+    ) -> MappingT: ...
+
+    @overload
+    def get(
+        self,
+        return_model: type[T],
+        query: str | Composable,
+        params: Optional[ParamType] = None,
+        default: Optional[T] = None,
+        combine_into_return_model: bool = False,
+    ) -> T: ...
+
+    def get(
+        self,
+        return_model: type[T] | type[MappingT],
+        query: str | Composable,
+        params: Optional[ParamType] = None,
+        default: Optional[T] = None,
+        combine_into_return_model: bool = False,
+    ) -> T | MappingT:
         """Always returns exactly one record or raises an exception
 
         This method should be used by default when expecting exactly one row to
@@ -73,7 +92,7 @@ class PostgresClient:
 
         Parameters
         ----------
-        return_model : Type[T of BaseModel]
+        return_model : type[T of BaseModel]
             Pydantic model to marshall the SQL query results into
         query : str
             SQL query to execute
@@ -135,40 +154,58 @@ class PostgresClient:
     @overload
     def find(
         self,
-        return_model: Type[T],
+        return_model: type[MappingT],
         query: str | Composable,
         params: Optional[ParamType] = None,
-        default: T = ...,
+        default: MappingT = ...,
         combine_into_return_model: bool = False,
-    ) -> T:
-        ...
+    ) -> MappingT: ...
 
     @overload
     def find(
         self,
-        return_model: Type[T],
+        return_model: type[T],
+        query: str | Composable,
+        params: Optional[ParamType] = None,
+        default: T = ...,
+        combine_into_return_model: bool = False,
+    ) -> T: ...
+
+    @overload
+    def find(
+        self,
+        return_model: type[MappingT],
+        query: str | Composable,
+        params: Optional[ParamType] = None,
+        default: Optional[MappingT] = None,
+        combine_into_return_model: bool = False,
+    ) -> MappingT | None: ...
+
+    @overload
+    def find(
+        self,
+        return_model: type[T],
         query: str | Composable,
         params: Optional[ParamType] = None,
         default: Optional[T] = None,
         combine_into_return_model: bool = False,
-    ) -> T | None:
-        ...
+    ) -> T | None: ...
 
     def find(
         self,
-        return_model: Type[T],
+        return_model: type[T] | type[MappingT],
         query: str | Composable,
         params: Optional[ParamType] = None,
-        default: Optional[T] = None,
+        default: Optional[T | MappingT] = None,
         combine_into_return_model: bool = False,
-    ) -> T | None:
+    ) -> T | MappingT | None:
         """Return the first result if it exists
 
         [desc]
 
         Parameters
         ----------
-        return_model : Type[T of BaseModel]
+        return_model : type[T of BaseModel]
             Pydantic model to marshall the SQL query results into
         query : str
             SQL query to execute
@@ -193,7 +230,7 @@ class PostgresClient:
         >>>
         """
         query_params = get_params("Query Params", params)
-        query_result: RealDictRow | BaseModel | None
+        query_result: RealDictRow | BaseModel | MappingT | None
 
         with self._handle_auto_connection():
             with self.cursor(self.connection) as cursor:
@@ -212,19 +249,35 @@ class PostgresClient:
             params if combine_into_return_model else None,
         )
 
+    @overload
     def select(
         self,
-        return_model: Type[T],
+        return_model: type[T],
         query: str | Composable,
         params: Optional[ParamType] = None,
-    ) -> tuple[T, ...]:
+    ) -> tuple[T, ...]: ...
+
+    @overload
+    def select(
+        self,
+        return_model: type[MappingT],
+        query: str | Composable,
+        params: Optional[ParamType] = None,
+    ) -> tuple[MappingT, ...]: ...
+
+    def select(
+        self,
+        return_model: type[T] | type[MappingT],
+        query: str | Composable,
+        params: Optional[ParamType] = None,
+    ) -> tuple[T, ...] | tuple[MappingT, ...]:
         """Return all rows
 
         [desc]
 
         Parameters
         ----------
-        return_model : Type[T of BaseModel]
+        return_model : type[T of BaseModel]
             Pydantic model to marshall the SQL query results into
         query : str
             SQL query to execute
@@ -286,13 +339,50 @@ class PostgresClient:
             with self.cursor(self.connection) as cursor:
                 cursor.execute(query, query_params)
 
+    @overload
     def execute_values(
         self,
         query: str | Composable,
-        values: Optional[Sequence[BaseModel]] = None,
+        values: Optional[
+            Sequence[BaseModel] | Sequence[MutableMapping[str, Any]]
+        ] = None,
+        *,
         template: Optional[Sequence[str]] = None,
-        return_model: Optional[Type[T]] = None,
-    ) -> None:
+        return_model: type[MappingT],
+    ) -> tuple[MappingT, ...]: ...
+
+    @overload
+    def execute_values(
+        self,
+        query: str | Composable,
+        values: Optional[
+            Sequence[BaseModel] | Sequence[MutableMapping[str, Any]]
+        ] = None,
+        *,
+        template: Optional[Sequence[str]] = None,
+        return_model: type[T],
+    ) -> tuple[T, ...]: ...
+
+    @overload
+    def execute_values(
+        self,
+        query: str | Composable,
+        values: Optional[
+            Sequence[BaseModel] | Sequence[MutableMapping[str, Any]]
+        ] = None,
+        *,
+        template: Optional[Sequence[str]] = None,
+        return_model: None = None,
+    ) -> None: ...
+
+    def execute_values(
+        self,
+        query: str | Composable,
+        values: Optional[Sequence[BaseModel] | Sequence[MappingT]] = None,
+        *,
+        template: Optional[Sequence[str]] = None,
+        return_model: Optional[type[T] | type[MappingT]] = None,
+    ) -> tuple[T, ...] | tuple[MappingT, ...] | None:
         """Execute a sql query with values
 
         [desc]
@@ -325,10 +415,10 @@ class PostgresClient:
         with self._handle_auto_connection():
             with self.cursor(self.connection) as cursor:
                 extras.execute_values(cursor, query, data, template)
-                
+
                 if return_model is None:
                     return
-                
+
                 query_result = cast(list[RealDictRow], cursor.fetchall())
 
         if len(query_result) == 0:
@@ -374,7 +464,8 @@ class PostgresClient:
         elif self.connection is None:
             connection_not_created()
 
-        yield
-
-        if close_connection_after_use:
-            self.close_connection()
+        try:
+            yield
+        finally:
+            if close_connection_after_use:
+                self.close_connection()

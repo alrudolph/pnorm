@@ -11,8 +11,7 @@ from pnorm.linter import PostgresCredentials
 
 
 @click.group()
-def cli():
-    ...
+def cli(): ...
 
 
 @cli.command()

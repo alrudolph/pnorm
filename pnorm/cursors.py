@@ -7,7 +7,7 @@ from psycopg2._psycopg import connection as Connection
 from psycopg2._psycopg import cursor as Cursor
 from psycopg2.extras import RealDictCursor
 
-from pnorm import connection_not_created
+from pnorm.exceptions import connection_not_created
 
 if TYPE_CHECKING:
     from pnorm import PostgresClient
@@ -64,5 +64,4 @@ class SingleCommitCursor:
 
         self.client.connection.commit()
 
-    def close(self) -> None:
-        ...
+    def close(self) -> None: ...

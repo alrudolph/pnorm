@@ -10,7 +10,12 @@ from typing import Literal, Type, cast
 import yaml
 from pydantic import BaseModel
 
-from pnorm import PostgresClient, PostgresCredentials, Session, create_transaction
+from pnorm import (
+    PostgresClient,
+    PostgresCredentials,
+    create_session,
+    create_transaction,
+)
 
 
 class BaseUsers(BaseModel):
@@ -180,7 +185,8 @@ def main(folder_path: Path, credentials: PostgresCredentials):
             )
         )
 
-    with Session(PostgresClient(credentials)) as session:
+    client = PostgresClient(credentials)
+    with create_session(client):
         base_migration(session)
 
         current_version = session.get(

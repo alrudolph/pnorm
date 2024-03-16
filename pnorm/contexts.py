@@ -9,8 +9,25 @@ if TYPE_CHECKING:
 
 @contextmanager
 def create_session(
-    client: PostgresClient, *, schema: Optional[str] = None
-) -> Generator[None, None, None]:
+    client: PostgresClient,
+    *,
+    schema: Optional[str] = None,
+) -> Generator[PostgresClient, None, None]:
+    """
+
+    Examples:
+
+    ```
+    with create_session(client):
+        client.execute(...)
+    ```
+
+    ```
+    with create_session(client) as session:
+        session.execute(...)
+    ```
+
+    """
     original_auto_create_connection = client.auto_create_connection
     client.auto_create_connection = False
     close_connection_after_use = False
@@ -20,10 +37,10 @@ def create_session(
         close_connection_after_use = True
 
     if schema is not None:
-        client.set_schema(schema)
+        client.set_schema(schema=schema)
 
     try:
-        yield
+        yield client
     except:
         client.rollback()
         raise
@@ -35,11 +52,11 @@ def create_session(
 
 
 @contextmanager
-def create_transaction(client: PostgresClient) -> Generator[None, None, None]:
+def create_transaction(client: PostgresClient) -> Generator[PostgresClient, None, None]:
     client.start_transaction()
 
     try:
-        yield
+        yield client
     except:
         client.rollback()
         raise
