@@ -1,19 +1,27 @@
-from typing import Any, Protocol
+from typing import Protocol, TypedDict, cast
 
-from pydantic import AliasChoices, BaseModel, ConfigDict, Field
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, SecretStr
 
 
-class CredentialsProtocol(Protocol):
+class CredentialsDict(TypedDict):
     dbname: str
     user: str
     password: str
     host: str
     port: int
 
-    def model_dump(self, *args: Any, **kwargs: Any) -> dict[str, Any]: ...
+
+class CredentialsProtocol(Protocol):
+    dbname: str
+    user: str
+    password: SecretStr
+    host: str
+    port: int
+
+    def as_dict(self) -> CredentialsDict: ...
 
 
-class PostgresCredentials(CredentialsProtocol, BaseModel):
+class PostgresCredentials(BaseModel):
     dbname: str = Field(
         default="postgres",
         validation_alias=AliasChoices("dbname", "database"),
@@ -24,3 +32,6 @@ class PostgresCredentials(CredentialsProtocol, BaseModel):
     port: int = 5432
 
     model_config = ConfigDict(extra="forbid")
+
+    def as_dict(self) -> CredentialsDict:
+        return cast(CredentialsDict, self.model_dump())

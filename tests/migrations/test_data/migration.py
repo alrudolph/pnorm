@@ -36,6 +36,26 @@ class V1(Migration):
                 ),
             ],
         )
+
+        self.client.execute(
+            "create table test_models_user ("
+            "  id varchar primary key"
+            "  , name varchar"
+            ");"
+            "create table test_models_user_pets ("
+            "  id varchar primary key"
+            "  , user_id varchar"
+            "  , name varchar"
+            "  , animmal_type varchar"
+            ");"
+            "create table test_models_user_favorite_pets ("
+            "  id varchar primary key"
+            "  , user_id varchar"
+            "  , name varchar"
+            "  , animmal_type varchar"
+            ");"
+        )
+
         super().upgrade(from_version)
 
     def downgrade(self, to_version: int):

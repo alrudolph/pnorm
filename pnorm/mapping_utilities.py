@@ -1,7 +1,6 @@
 from __future__ import annotations
 
-import json
-from typing import Any, MutableMapping, Optional, Type, cast, overload
+from typing import Any, MutableMapping, Optional, cast, overload
 
 from pydantic import BaseModel
 from rcheck import r
@@ -21,7 +20,10 @@ def get_params(
     if isinstance(params, BaseModel):
         params = params.model_dump(by_alias=by_alias, mode="json")
 
-    return cast(dict[str, Any], r.check_mapping(name, params, keys_of=str))
+    return cast(
+        dict[str, Any], 
+        r.check_mapping(name, params, keys_of=str, values_of=Any),
+    )
 
 
 @overload
@@ -54,6 +56,5 @@ def combine_into_return(
         return return_model(**result_dict)
     except Exception as e:
         model_name = getattr(return_model, "__name__")
-        record = json.dumps(result_dict)
-        msg = f"Could not marshall record {record} into model {model_name}"
+        msg = f"Could not marshall record {result_dict} into model {model_name}"
         raise MarshallRecordException(msg) from e

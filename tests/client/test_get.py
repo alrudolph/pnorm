@@ -143,5 +143,4 @@ def test_session_connection_old(client: PostgresClientCounter):
 
 # test when in transaction works - but it has to commit anyways
 # what happens to things previously in the transaction?
-def test_transaction_connection(client: PostgresClientCounter):
-    ...
+def test_transaction_connection(client: PostgresClientCounter): ...

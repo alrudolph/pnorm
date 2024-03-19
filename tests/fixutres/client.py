@@ -6,8 +6,6 @@ from pytest import fixture
 
 from pnorm import PostgresClient, PostgresCredentials
 
-load_dotenv()
-
 
 class ConnectionCount(TypedDict):
     create_connections_count: int
@@ -77,8 +75,10 @@ class PostgresClientCounter(PostgresClient):
 
 @fixture
 def client() -> PostgresClient:
+    load_dotenv()
     credentials = PostgresCredentials(
-        dbname=os.environ["TEST_DB_NAME"],
+        # dbname=os.environ["TEST_DB_NAME"],
+        dbname="postgres",
         user=os.environ["TEST_DB_USER"],
         password=os.environ["TEST_DB_PASSWORD"],
         host=os.environ["TEST_DB_HOST"],

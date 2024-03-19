@@ -1,25 +1,14 @@
 from __future__ import annotations
 
-import json
 from contextlib import contextmanager
-from typing import (
-    Annotated,
-    Any,
-    Generator,
-    MutableMapping,
-    Optional,
-    Sequence,
-    TypeVar,
-    cast,
-    overload,
-)
+from typing import Any, Generator, MutableMapping, Optional, Sequence, cast, overload
 
 import psycopg2
 import psycopg2.extras as extras
 from psycopg2._psycopg import connection as Connection
 from psycopg2.extras import RealDictRow
 from psycopg2.sql import Composable
-from pydantic import BaseModel, PlainSerializer
+from pydantic import BaseModel
 from rcheck import r
 
 from pnorm import (
@@ -27,29 +16,30 @@ from pnorm import (
     MultipleRecordsReturnedException,
     NoRecordsReturnedException,
 )
-from pnorm.credentials import CredentialsProtocol
+from pnorm.credentials import CredentialsDict, CredentialsProtocol, PostgresCredentials
 from pnorm.cursors import SingleCommitCursor, TransactionCursor
 from pnorm.exceptions import connection_not_created
 from pnorm.mapping_utilities import combine_into_return, get_params
 from pnorm.types import MappingT, ParamType, T
 
-U = TypeVar("U", dict[Any, Any] | None, list[Any] | None)
-
-PostgresJSON = Annotated[
-    U,
-    PlainSerializer(json.dumps, when_used="json-unless-none"),
-]
-
 
 class PostgresClient:
     def __init__(
         self,
-        credentials: CredentialsProtocol,
+        credentials: CredentialsProtocol | CredentialsDict,
         auto_create_connection: bool = True,
     ):
-        self.credentials = credentials
+        # Want to keep as the PostgresCredentials class for SecretStr
+        if isinstance(credentials, dict):
+            self.credentials = PostgresCredentials(**credentials)
+        else:
+            self.credentials = PostgresCredentials(**credentials.as_dict())
+
         self.connection: Connection | None = None
-        self.auto_create_connection = auto_create_connection
+        self.auto_create_connection = r.check_bool(
+            "auto_create_connection",
+            auto_create_connection,
+        )
         self.cursor: SingleCommitCursor | TransactionCursor = SingleCommitCursor(self)
 
     def set_schema(self, *, schema: str) -> None:
@@ -123,7 +113,6 @@ class PostgresClient:
         >>>
         >>>
         """
-        # query = r.check_str("query", query) # OR Composable
         query_params = get_params("Query Params", params)
 
         with self._handle_auto_connection():
@@ -132,13 +121,15 @@ class PostgresClient:
                 query_result = cast(list[RealDictRow], cursor.fetchmany(2))
 
         if len(query_result) >= 2:
-            msg = f"Received two or more records for query: {query}"
+            msg = (
+                f"Received two or more records for query: {self.query_as_string(query)}"
+            )
             raise MultipleRecordsReturnedException(msg)
 
         single: dict[str, Any] | BaseModel
         if len(query_result) == 0:
             if default is None:
-                msg = f"Did not receive any records for query: {query}"
+                msg = f"Did not receive any records for query: {self.query_as_string(query)}"
                 raise NoRecordsReturnedException(msg)
 
             single = default
@@ -295,7 +286,6 @@ class PostgresClient:
         >>>
         >>>
         """
-        # query = r.check_str("query", query) # OR Composable
         query_params = get_params("Query Params", params)
 
         with self._handle_auto_connection():
@@ -332,7 +322,6 @@ class PostgresClient:
         >>>
         >>>
         """
-        # query = r.check_str("query", query)
         query_params = get_params("Query Params", params)
 
         with self._handle_auto_connection():
@@ -430,7 +419,7 @@ class PostgresClient:
         if self.connection is not None:
             raise ConnectionAlreadyEstablishedException()
 
-        self.connection = psycopg2.connect(**self.credentials.model_dump())
+        self.connection = psycopg2.connect(**self.credentials.as_dict())
 
     def close_connection(self) -> None:
         if self.connection is None:
@@ -451,6 +440,7 @@ class PostgresClient:
 
     def end_transaction(self) -> None:
         self.cursor.commit()
+        # TODO: try catch rollback here?
         self.cursor = SingleCommitCursor(self)
 
     @contextmanager
@@ -469,3 +459,11 @@ class PostgresClient:
         finally:
             if close_connection_after_use:
                 self.close_connection()
+
+    def query_as_string(self, query: str | Composable) -> str:
+        if isinstance(query, str):
+            return query
+
+        with self._handle_auto_connection():
+            with self.cursor(self.connection) as cursor:
+                return query.as_string(cursor)
