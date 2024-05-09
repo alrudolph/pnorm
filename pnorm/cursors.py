@@ -53,7 +53,8 @@ class SingleCommitCursor:
             connection_not_created()
 
         with connection:
-            with connection.cursor(cursor_factory=RealDictCursor) as cursor:
+            with connection.cursor() as cursor:
+            # with connection.cursor(cursor_factory=RealDictCursor) as cursor:
                 yield cursor
 
             connection.commit()

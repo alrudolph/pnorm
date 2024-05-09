@@ -47,7 +47,6 @@ def migrate(
         user=user,
         password=password,
     )
-
     migrations.main(Path(path), credentials)
 
 

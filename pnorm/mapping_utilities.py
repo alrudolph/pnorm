@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-from typing import Any, MutableMapping, Optional, cast, overload
+from typing import Any, MutableMapping, Optional, Sequence, cast, overload
 
 from pydantic import BaseModel
 from rcheck import r
 
 from pnorm import MarshallRecordException
-from pnorm.types import MappingT, ParamType, T
+from pnorm.pnorm_types import MappingT, ParamType, T
 
 
 def get_params(
@@ -21,7 +21,7 @@ def get_params(
         params = params.model_dump(by_alias=by_alias, mode="json")
 
     return cast(
-        dict[str, Any], 
+        dict[str, Any],
         r.check_mapping(name, params, keys_of=str, values_of=Any),
     )
 
@@ -58,3 +58,31 @@ def combine_into_return(
         model_name = getattr(return_model, "__name__")
         msg = f"Could not marshall record {result_dict} into model {model_name}"
         raise MarshallRecordException(msg) from e
+
+
+@overload
+def combine_many_into_return(
+    return_model: type[T],
+    result: Sequence[MutableMapping[str, Any] | BaseModel],
+    params: Optional[ParamType] = None,
+) -> tuple[T, ...]: ...
+
+
+@overload
+def combine_many_into_return(
+    return_model: type[MappingT],
+    result: Sequence[MutableMapping[str, Any] | BaseModel],
+    params: Optional[ParamType] = None,
+) -> tuple[MappingT, ...]: ...
+
+
+def combine_many_into_return(
+    return_model: type[T] | type[MappingT],
+    results: Sequence[MutableMapping[str, Any] | BaseModel],
+    params: Optional[ParamType] = None,
+) -> tuple[T, ...] | tuple[MappingT, ...]:
+    
+    return tuple(
+        combine_into_return(return_model, result, params) 
+        for result in results
+    )

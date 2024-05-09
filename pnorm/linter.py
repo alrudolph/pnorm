@@ -3,12 +3,11 @@ import sys
 from glob import glob
 from importlib import import_module
 from pathlib import Path
-from typing import Any, Sequence, Type, cast
+from typing import Any, Sequence
 
 from pydantic import BaseModel
 
-from pnorm import PostgresClient, PostgresCredentials, Session
-from pnorm.contexts import Session
+from pnorm import PostgresClient, PostgresCredentials
 
 creds = PostgresCredentials(
     user="postgres",
@@ -30,13 +29,13 @@ def get_all_files_in_path(path: Path) -> Sequence[Path]:
 class GetStatement(BaseModel):
     statement: str = "get"
     sql_statement: str
-    return_model: Type[BaseModel]
+    return_model: type[BaseModel]
 
 
 class SelectStatement(BaseModel):
     statement: str = "select"
     sql_statement: str
-    return_model: Type[BaseModel]
+    return_model: type[BaseModel]
 
 
 class ExecuteStatement(BaseModel):
@@ -197,6 +196,6 @@ def lint_file(path: Path, session: PostgresClient) -> None:
 def main(path: Path) -> None:
     all_files = get_all_files_in_path(path)
 
-    with Session(client) as session:
+    with client.start_session() as session:
         for file in all_files:
             lint_file(file, session)

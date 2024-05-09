@@ -1,10 +1,10 @@
-from pnorm import PostgresClient, create_session
+from pnorm import PostgresClient
 from tests.fixutres.client import client
 from tests.model.fixtures import FavoritePetModel, PetModel, UserModel
 
 
 def test_load_model(client: PostgresClient):
-    with create_session(client, schema="test") as session:
+    with client.start_session(schema="test") as session:
         session.execute(
             "insert into test_models_user (id, name) values (%(id)s, %(name)s)",
             {"id": "100", "name": "test-load"},

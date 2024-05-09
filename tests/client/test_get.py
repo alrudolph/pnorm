@@ -1,12 +1,7 @@
 import pytest
 from pydantic import BaseModel
 
-from pnorm import (
-    MultipleRecordsReturnedException,
-    NoRecordsReturnedException,
-    Session,
-    create_session,
-)
+from pnorm import MultipleRecordsReturnedException, NoRecordsReturnedException
 
 from ..fixutres.client import PostgresClientCounter, client  # type: ignore
 from ..schema import DataModel
@@ -101,9 +96,9 @@ def test_session_connection(client: PostgresClientCounter):
     assert client.connection is None
 
     # todo: what happens if exception is raised (exception as part of sql or non part)
-    with create_session(client):
-        assert client.connection is not None
-        row = client.get(
+    with client.start_session() as session:
+        assert session.connection is not None
+        row = session.get(
             DataModel,
             "select * from test_data where test_method = %(test_method)s and test_name = %(test_name)s",
             {
@@ -123,7 +118,7 @@ def test_session_connection_old(client: PostgresClientCounter):
     assert client.connection is None
 
     # todo: what happens if exception is raised (exception as part of sql or non part)
-    with Session(client) as session:
+    with client.start_session() as session:
         assert client.connection is not None
         row = session.get(
             DataModel,

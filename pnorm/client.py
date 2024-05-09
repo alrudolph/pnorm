@@ -19,18 +19,24 @@ from pnorm import (
 from pnorm.credentials import CredentialsDict, CredentialsProtocol, PostgresCredentials
 from pnorm.cursors import SingleCommitCursor, TransactionCursor
 from pnorm.exceptions import connection_not_created
-from pnorm.mapping_utilities import combine_into_return, get_params
-from pnorm.types import MappingT, ParamType, T
+from pnorm.mapping_utilities import (
+    combine_into_return,
+    combine_many_into_return,
+    get_params,
+)
+from pnorm.pnorm_types import MappingT, ParamType, T
 
 
 class PostgresClient:
     def __init__(
         self,
-        credentials: CredentialsProtocol | CredentialsDict,
+        credentials: CredentialsProtocol | CredentialsDict | PostgresCredentials,
         auto_create_connection: bool = True,
-    ):
+    ) -> None:
         # Want to keep as the PostgresCredentials class for SecretStr
-        if isinstance(credentials, dict):
+        if isinstance(credentials, PostgresCredentials):
+            self.credentials = credentials
+        elif isinstance(credentials, dict):
             self.credentials = PostgresCredentials(**credentials)
         else:
             self.credentials = PostgresCredentials(**credentials.as_dict())
@@ -44,7 +50,8 @@ class PostgresClient:
 
     def set_schema(self, *, schema: str) -> None:
         schema = r.check_str("schema", schema)
-        self.execute("set search_path to %(search_path)s", {"search_path": schema})
+        # self.execute("set search_path to %(search_path)s", {"search_path": schema})
+        self.execute(f"set search_path to {schema}")
 
     @overload
     def get(
@@ -121,15 +128,13 @@ class PostgresClient:
                 query_result = cast(list[RealDictRow], cursor.fetchmany(2))
 
         if len(query_result) >= 2:
-            msg = (
-                f"Received two or more records for query: {self.query_as_string(query)}"
-            )
+            msg = f"Received two or more records for query: {self._query_as_string(query)}"
             raise MultipleRecordsReturnedException(msg)
 
         single: dict[str, Any] | BaseModel
         if len(query_result) == 0:
             if default is None:
-                msg = f"Did not receive any records for query: {self.query_as_string(query)}"
+                msg = f"Did not receive any records for query: {self._query_as_string(query)}"
                 raise NoRecordsReturnedException(msg)
 
             single = default
@@ -147,8 +152,8 @@ class PostgresClient:
         self,
         return_model: type[MappingT],
         query: str | Composable,
+        default: MappingT,
         params: Optional[ParamType] = None,
-        default: MappingT = ...,
         combine_into_return_model: bool = False,
     ) -> MappingT: ...
 
@@ -157,8 +162,8 @@ class PostgresClient:
         self,
         return_model: type[T],
         query: str | Composable,
+        default: T,
         params: Optional[ParamType] = None,
-        default: T = ...,
         combine_into_return_model: bool = False,
     ) -> T: ...
 
@@ -264,8 +269,6 @@ class PostgresClient:
     ) -> tuple[T, ...] | tuple[MappingT, ...]:
         """Return all rows
 
-        [desc]
-
         Parameters
         ----------
         return_model : type[T of BaseModel]
@@ -296,7 +299,7 @@ class PostgresClient:
         if len(query_result) == 0:
             return tuple()
 
-        return tuple(combine_into_return(return_model, row) for row in query_result)
+        return combine_many_into_return(return_model, query_result)
 
     # todo: select using fetchmany for pagination
 
@@ -374,8 +377,6 @@ class PostgresClient:
     ) -> tuple[T, ...] | tuple[MappingT, ...] | None:
         """Execute a sql query with values
 
-        [desc]
-
         Parameters
         ----------
         query : str
@@ -391,7 +392,6 @@ class PostgresClient:
         >>>
         >>>
         """
-        query = r.check_str("query", query)
         data: list[Any] | dict[str, Any] = []
 
         if values is None:
@@ -413,15 +413,18 @@ class PostgresClient:
         if len(query_result) == 0:
             return tuple()
 
-        return tuple(combine_into_return(return_model, row) for row in query_result)
+        return combine_many_into_return(return_model, query_result)
 
-    def create_connection(self) -> None:
+    def _create_connection(self) -> None:
         if self.connection is not None:
             raise ConnectionAlreadyEstablishedException()
 
-        self.connection = psycopg2.connect(**self.credentials.as_dict())
+        # self.connection = psycopg2.connect(**self.credentials.as_dict())
+        import psycopg
+        self.connection = psycopg.connect(**self.credentials.as_dict())
+        # self.connection = psycopg.connect(**self.credentials.as_dict(), row_factory=psycopg.rows.dict_row)
 
-    def close_connection(self) -> None:
+    def _end_connection(self) -> None:
         if self.connection is None:
             connection_not_created()
 
@@ -429,18 +432,17 @@ class PostgresClient:
         self.connection.close()
         self.connection = None
 
-    def rollback(self) -> None:
+    def _rollback(self) -> None:
         if self.connection is None:
             connection_not_created()
 
         self.connection.rollback()
 
-    def start_transaction(self) -> None:
+    def _create_transaction(self) -> None:
         self.cursor = TransactionCursor(self)
 
-    def end_transaction(self) -> None:
+    def _end_transaction(self) -> None:
         self.cursor.commit()
-        # TODO: try catch rollback here?
         self.cursor = SingleCommitCursor(self)
 
     @contextmanager
@@ -449,7 +451,7 @@ class PostgresClient:
 
         if self.auto_create_connection:
             if self.connection is None:
-                self.create_connection()
+                self._create_connection()
                 close_connection_after_use = True
         elif self.connection is None:
             connection_not_created()
@@ -458,12 +460,52 @@ class PostgresClient:
             yield
         finally:
             if close_connection_after_use:
-                self.close_connection()
+                self._end_connection()
 
-    def query_as_string(self, query: str | Composable) -> str:
+    def _query_as_string(self, query: str | Composable) -> str:
         if isinstance(query, str):
             return query
 
         with self._handle_auto_connection():
             with self.cursor(self.connection) as cursor:
                 return query.as_string(cursor)
+
+    @contextmanager
+    def start_transaction(self) -> Generator[PostgresClient, None, None]:
+        self._create_transaction()
+
+        try:
+            yield self
+        except:
+            self._rollback()
+            raise
+        finally:
+            self._end_transaction()
+
+    @contextmanager
+    def start_session(
+        self,
+        *,
+        schema: Optional[str] = None,
+    ) -> Generator[PostgresClient, None, None]:
+        original_auto_create_connection = self.auto_create_connection
+        self.auto_create_connection = False
+        close_connection_after_use = False
+
+        if self.connection is None:
+            self._create_connection()
+            close_connection_after_use = True
+
+        if schema is not None:
+            self.set_schema(schema=schema)
+
+        try:
+            yield self
+        except:
+            self._rollback()
+            raise
+        finally:
+            if self.connection is not None and close_connection_after_use:
+                self._end_connection()
+
+            self.auto_create_connection = original_auto_create_connection

@@ -23,23 +23,23 @@ class PostgresClientCounter(PostgresClient):
         self.create_connections: list[ConnectionCount] = []
         self.close_connections: list[ConnectionCount] = []
 
-    def create_connection(self) -> None:
+    def _create_connection(self) -> None:
         self.create_connections.append(
             {
                 "create_connections_count": len(self.create_connections) + 1,
                 "close_connections_count": len(self.close_connections),
             }
         )
-        return super().create_connection()
+        return super()._create_connection()
 
-    def close_connection(self) -> None:
+    def _end_connection(self) -> None:
         self.close_connections.append(
             {
                 "create_connections_count": len(self.create_connections),
                 "close_connections_count": len(self.close_connections) + 1,
             }
         )
-        return super().close_connection()
+        return super()._end_connection()
 
     def check_connections(self) -> int:
         number_of_connections = len(self.create_connections)

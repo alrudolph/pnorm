@@ -10,9 +10,8 @@ from .exceptions import (
 ...  # type: ignore
 
 from .client import PostgresClient
-from .contexts import create_session, create_transaction
 from .model import Model, PnormConfig
-from .types import PostgresJSON
+from .pnorm_types import PostgresJSON
 
 __all__ = [
     "PostgresCredentials",
@@ -24,11 +23,5 @@ __all__ = [
     "ConnectionAlreadyEstablishedException",
     "ConnectionNotEstablishedException",
     "MarshallRecordException",
-    "create_session",
-    "create_transaction",
     "PostgresJSON",
 ]
-
-# https://github.com/dagster-io/dagster/blob/master/python_modules/libraries/dagster-aws/dagster_aws/redshift/resources.py
-# https://github.com/jmoiron/sqlx
-# https://jmoiron.github.io/sqlx/

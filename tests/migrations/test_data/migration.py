@@ -12,7 +12,7 @@ class TestData(BaseModel):
 class V1(Migration):
     def upgrade(self, from_version: int | None):
         self.client.execute(
-            "create table test_data ("
+            "create table if not exists test_data ("
             "  test_method varchar"
             "  , test_name varchar"
             "  , value varchar"
