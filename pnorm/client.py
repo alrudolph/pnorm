@@ -420,8 +420,8 @@ class PostgresClient:
             raise ConnectionAlreadyEstablishedException()
 
         # self.connection = psycopg2.connect(**self.credentials.as_dict())
-        import psycopg
-        self.connection = psycopg.connect(**self.credentials.as_dict())
+
+        self.connection = psycopg2.connect(**self.credentials.as_dict())
         # self.connection = psycopg.connect(**self.credentials.as_dict(), row_factory=psycopg.rows.dict_row)
 
     def _end_connection(self) -> None:

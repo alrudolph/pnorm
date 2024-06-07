@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
+from datetime import datetime
 from typing import (
     Any,
     Generator,
@@ -18,7 +19,7 @@ from psycopg2.sql import SQL, Composed, Identifier
 from pydantic import BaseModel
 from pydantic.fields import FieldInfo
 from rcheck import r
-from datetime import datetime
+
 from pnorm.client import PostgresClient
 
 
@@ -148,7 +149,7 @@ def col_names_as_identifier(column_names: list[str]) -> Composed:
 
 
 class Model(BaseModel):
-    # can we hide in repr?
+    # TODO: can we hide in repr? (could just add underscore to pnorm_config field)
     pnorm_config: PnormConfig
     _transaction: PostgresClient | None = None
 
@@ -272,8 +273,21 @@ class Model(BaseModel):
         self,
         transaction: PostgresClient,
         ignore_on_conflict: bool = False,
+        parent_result: dict[str, Any] | None = None,
     ) -> Self:
         """Insert the model into the db if it does not otherwise exist, otherwsise do nothing"""
+
+        # TODO: add to update too?
+        if (
+            parent_result is not None
+            and self.pnorm_config.parent_key_id_column is not None
+            and getattr(self, self.pnorm_config.parent_key_id_column) is None
+        ):
+            setattr(
+                self,
+                self.pnorm_config.parent_key_id_column,
+                parent_result.get(self.pnorm_config.id_column),
+            )
 
         output = transaction.get(
             dict[str, Any],
@@ -291,12 +305,22 @@ class Model(BaseModel):
         for submodel_name, submodel in self._model_utils.submodels_names.items():
             match submodel:
                 case Model():
-                    output[submodel_name] = submodel.insert(transaction)
+                    output[submodel_name] = submodel._insert(
+                        transaction,
+                        ignore_on_conflict=ignore_on_conflict,
+                        parent_result=output,
+                    )
                 case list(_):
                     sub_outputs: list[Model] = []
 
                     for model in submodel:
-                        sub_outputs.append(model.insert(transaction))
+                        sub_outputs.append(
+                            model._insert(
+                                transaction,
+                                ignore_on_conflict=ignore_on_conflict,
+                                parent_result=output,
+                            )
+                        )
 
                     output[submodel_name] = sub_outputs
 
@@ -420,7 +444,7 @@ class Model(BaseModel):
                 case list(_):
                     for model in submodel:
                         model.delete(transaction)
-        
+
     @property
     def _model_utils(self) -> ModelUtils:
         return ModelUtils(self)
@@ -455,7 +479,7 @@ class Model(BaseModel):
 
 def create_table_ddl_string(cls: Model | type[Model]) -> str:
     model_utils = ModelUtils(cls)
-    
+
     datatypes = {
         str: "varchar",
         int: "int",
@@ -463,20 +487,20 @@ def create_table_ddl_string(cls: Model | type[Model]) -> str:
         bool: "bool",
         datetime: "timestamp",
     }
-    
+
     # previous = f'create table "{cls.pnorm_config.table_name}" (\n'
     previous = "create table [TABLE_NAME] (\n"
-        
+
     for i, column_name in enumerate(model_utils.non_submodel_names):
         column_type = datatypes[model_utils.fields[column_name].annotation]
-        
+
         if i == 0:
             previous += "  "
         else:
             previous += "  , "
 
         previous += f'"{column_name}" {column_type}\n'
-    
+
     # TODO: add foreing key constraint
     # TODO: add "primary key" on id_columns
     # if cls.pnorm_config.parent_key_id_column is not None:
@@ -484,9 +508,9 @@ def create_table_ddl_string(cls: Model | type[Model]) -> str:
     #     # column_type = datatypes[getattr(self, column_name).annotation]
     #     column_type = datatypes[cls._model_utils.fields[column_name].annotation]
     #     previous += f'  , "{column_name}" {column_type}\n'
-    
-    previous +=");\n"
-    
+
+    previous += ");\n"
+
     for submodel in model_utils.submodels:
         match submodel:
             case Model():
@@ -497,7 +521,5 @@ def create_table_ddl_string(cls: Model | type[Model]) -> str:
             case _:
                 if issubclass(submodel, BaseModel):
                     previous += "\n" + create_table_ddl_string(submodel)
-        
 
     return previous
-    
