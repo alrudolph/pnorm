@@ -13,9 +13,9 @@ def get_params(
     name: str,
     params: Optional[ParamType],
     by_alias: bool = False,
-) -> dict[str, Any]:
+) -> dict[str, Any] | None:
     if params is None:
-        return {}
+        return None
 
     if isinstance(params, BaseModel):
         params = params.model_dump(by_alias=by_alias, mode="json")
@@ -81,8 +81,7 @@ def combine_many_into_return(
     results: Sequence[MutableMapping[str, Any] | BaseModel],
     params: Optional[ParamType] = None,
 ) -> tuple[T, ...] | tuple[MappingT, ...]:
-    
+
     return tuple(
-        combine_into_return(return_model, result, params) 
-        for result in results
+        combine_into_return(return_model, result, params) for result in results
     )
