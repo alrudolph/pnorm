@@ -9,6 +9,7 @@ from .exceptions import (
 
 ...  # type: ignore
 
+from .async_client import AsyncPostgresClient
 from .client import PostgresClient
 from .model import Model, PnormConfig
 from .pnorm_types import PostgresJSON
@@ -24,4 +25,5 @@ __all__ = [
     "ConnectionNotEstablishedException",
     "MarshallRecordException",
     "PostgresJSON",
+    "AsyncPostgresClient",
 ]

@@ -152,8 +152,9 @@ class PostgresClient:
         self,
         return_model: type[MappingT],
         query: str | Composable,
-        default: MappingT,
         params: Optional[ParamType] = None,
+        *,
+        default: MappingT,
         combine_into_return_model: bool = False,
     ) -> MappingT: ...
 
@@ -162,8 +163,9 @@ class PostgresClient:
         self,
         return_model: type[T],
         query: str | Composable,
-        default: T,
         params: Optional[ParamType] = None,
+        *,
+        default: T,
         combine_into_return_model: bool = False,
     ) -> T: ...
 
@@ -173,6 +175,7 @@ class PostgresClient:
         return_model: type[MappingT],
         query: str | Composable,
         params: Optional[ParamType] = None,
+        *,
         default: Optional[MappingT] = None,
         combine_into_return_model: bool = False,
     ) -> MappingT | None: ...
@@ -183,6 +186,7 @@ class PostgresClient:
         return_model: type[T],
         query: str | Composable,
         params: Optional[ParamType] = None,
+        *,
         default: Optional[T] = None,
         combine_into_return_model: bool = False,
     ) -> T | None: ...
@@ -192,6 +196,7 @@ class PostgresClient:
         return_model: type[T] | type[MappingT],
         query: str | Composable,
         params: Optional[ParamType] = None,
+        *,
         default: Optional[T | MappingT] = None,
         combine_into_return_model: bool = False,
     ) -> T | MappingT | None:

@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "pnorm"
-version = "0.0.0.4"
+version = "0.0.0.5"
 description = "(Postgres) Not an ORM"
 authors = ["Alex Rudolph <alex3rudolph@gmail.com>"]
 readme = "README.md"
@@ -14,6 +14,7 @@ pydantic = "^2.5.2"
 click = "^8.1.7"
 pyyaml = "^6.0.1"
 black = "^24.3.0"
+psycopg = {version = "^3.2.1", extras = ["binary"]}
 
 [tool.poetry.group.dev.dependencies]
 isort = "^5.13.0"
