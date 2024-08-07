@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "pnorm"
-version = "0.0.0.5"
+version = "0.0.0.6"
 description = "(Postgres) Not an ORM"
 authors = ["Alex Rudolph <alex3rudolph@gmail.com>"]
 readme = "README.md"

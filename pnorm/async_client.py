@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from contextlib import asynccontextmanager
 from typing import (
     Any,
@@ -67,6 +68,8 @@ class AsyncPostgresClient:
         params: Optional[ParamType] = None,
         default: Optional[T] = None,
         combine_into_return_model: bool = False,
+        *,
+        timeout: Optional[float] = None,
     ) -> MappingT: ...
 
     @overload
@@ -77,6 +80,8 @@ class AsyncPostgresClient:
         params: Optional[ParamType] = None,
         default: Optional[T] = None,
         combine_into_return_model: bool = False,
+        *,
+        timeout: Optional[float] = None,
     ) -> T: ...
 
     async def get(
@@ -86,6 +91,8 @@ class AsyncPostgresClient:
         params: Optional[ParamType] = None,
         default: Optional[T] = None,
         combine_into_return_model: bool = False,
+        *,
+        timeout: Optional[float] = None,
     ) -> T | MappingT:
         """Always returns exactly one record or raises an exception
 
@@ -130,8 +137,14 @@ class AsyncPostgresClient:
 
         async with self._handle_auto_connection():
             async with self.cursor(self.connection) as cursor:
-                await cursor.execute(query, query_params)
-                query_result = await cursor.fetchmany(2)
+                try:
+                    async with asyncio.timeout(timeout):
+                        await cursor.execute(query, query_params)
+                        query_result = await cursor.fetchmany(2)
+                except asyncio.TimeoutError:
+                    if self.connection is not None:
+                        self.connection.cancel()
+                    raise
 
         if len(query_result) >= 2:
             msg = f"Received two or more records for query: {await self._query_as_string(query)}"
@@ -162,6 +175,7 @@ class AsyncPostgresClient:
         *,
         default: MappingT,
         combine_into_return_model: bool = False,
+        timeout: Optional[float] = None,
     ) -> MappingT: ...
 
     @overload
@@ -173,6 +187,7 @@ class AsyncPostgresClient:
         *,
         default: T,
         combine_into_return_model: bool = False,
+        timeout: Optional[float] = None,
     ) -> T: ...
 
     @overload
@@ -184,6 +199,7 @@ class AsyncPostgresClient:
         *,
         default: Optional[MappingT] = None,
         combine_into_return_model: bool = False,
+        timeout: Optional[float] = None,
     ) -> MappingT | None: ...
 
     @overload
@@ -195,6 +211,7 @@ class AsyncPostgresClient:
         *,
         default: Optional[T] = None,
         combine_into_return_model: bool = False,
+        timeout: Optional[float] = None,
     ) -> T | None: ...
 
     async def find(
@@ -205,6 +222,7 @@ class AsyncPostgresClient:
         *,
         default: Optional[T | MappingT] = None,
         combine_into_return_model: bool = False,
+        timeout: Optional[float] = None,
     ) -> T | MappingT | None:
         """Return the first result if it exists
 
@@ -241,8 +259,14 @@ class AsyncPostgresClient:
 
         async with self._handle_auto_connection():
             async with self.cursor(self.connection) as cursor:
-                await cursor.execute(query, query_params)
-                query_result = await cursor.fetchone()
+                try:
+                    async with asyncio.timeout(timeout):
+                        await cursor.execute(query, query_params)
+                        query_result = await cursor.fetchone()
+                except asyncio.TimeoutError:
+                    if self.connection is not None:
+                        self.connection.cancel()
+                    raise
 
         if query_result is None or len(query_result) == 0:
             if default is None:
@@ -262,6 +286,8 @@ class AsyncPostgresClient:
         return_model: type[T],
         query: str | Composable,
         params: Optional[ParamType] = None,
+        *,
+        timeout: Optional[float] = None,
     ) -> tuple[T, ...]: ...
 
     @overload
@@ -270,6 +296,8 @@ class AsyncPostgresClient:
         return_model: type[MappingT],
         query: str | Composable,
         params: Optional[ParamType] = None,
+        *,
+        timeout: Optional[float] = None,
     ) -> tuple[MappingT, ...]: ...
 
     async def select(
@@ -277,6 +305,8 @@ class AsyncPostgresClient:
         return_model: type[T] | type[MappingT],
         query: str | Composable,
         params: Optional[ParamType] = None,
+        *,
+        timeout: Optional[float] = None,
     ) -> tuple[T, ...] | tuple[MappingT, ...]:
         """Return all rows
 
@@ -304,8 +334,14 @@ class AsyncPostgresClient:
 
         async with self._handle_auto_connection():
             async with self.cursor(self.connection) as cursor:
-                await cursor.execute(query, query_params)
-                query_result = await cursor.fetchall()
+                try:
+                    async with asyncio.timeout(timeout):
+                        await cursor.execute(query, query_params)
+                        query_result = await cursor.fetchall()
+                except asyncio.TimeoutError:
+                    if self.connection is not None:
+                        self.connection.cancel()
+                    raise
 
         if len(query_result) == 0:
             return tuple()
@@ -318,6 +354,8 @@ class AsyncPostgresClient:
         self,
         query: str | Composable,
         params: Optional[ParamType] = None,
+        *,
+        timeout: Optional[float] = None,
     ) -> None:
         """Execute a SQL query
 
@@ -340,7 +378,13 @@ class AsyncPostgresClient:
 
         async with self._handle_auto_connection():
             async with self.cursor(self.connection) as cursor:
-                await cursor.execute(query, query_params)
+                try:
+                    async with asyncio.timeout(timeout):
+                        await cursor.execute(query, query_params)
+                except asyncio.TimeoutError:
+                    if self.connection is not None:
+                        self.connection.cancel()
+                    raise
 
     # @overload
     # async def execute_values(
