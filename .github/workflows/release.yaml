@@ -19,7 +19,7 @@ jobs:
           python-version: 3.11
 
       - name: Installs dependencies
-        run: poetry install --no-dev
+        run: poetry install --without dev
 
       - name: Publish package
         run: |
