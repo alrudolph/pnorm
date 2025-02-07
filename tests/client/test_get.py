@@ -1,141 +1,280 @@
+from typing import Any
+
+import psycopg
 import pytest
+import pytest_asyncio
 from pydantic import BaseModel
 
-from pnorm import MultipleRecordsReturnedException, NoRecordsReturnedException
+from pnorm import (
+    MultipleRecordsReturnedException,
+    NoRecordsReturnedException,
+    QueryContext,
+)
+from tests.fixutres.client_counter import PostgresClientCounter, client  # type: ignore
+from tests.utils.telemetry import assert_span
 
-from ..fixutres.client import PostgresClientCounter, client  # type: ignore
-from ..schema import DataModel
-
-
-def test_simple_row_returned(client: PostgresClientCounter):
-    assert client.connection is None
-
-    row = client.get(
-        DataModel,
-        "select * from test_data where test_method = %(test_method)s and test_name = %(test_name)s",
-        {
-            "test_method": "get",
-            "test_name": "test_simple_row_returned",
-        },
-    )
-
-    assert row.test_method == "get"
-    assert row.test_name == "test_simple_row_returned"
-    assert row.value == "1"
-    assert client.connection is None
-    assert client.check_connections() == 1
+pytest_plugins = ("pytest_asyncio",)
 
 
-def test_no_rows_returned(client: PostgresClientCounter):
-    assert client.connection is None
+class TestAsyncGet:
+    @pytest_asyncio.fixture(autouse=True)
+    async def setup_tests(self, client: PostgresClientCounter):
+        async with client.start_session() as session:
+            await session.execute(
+                "create table if not exists pnorm__async_get__tests (user_id int unique, name text)"
+            )
+            await session.execute(
+                "insert into pnorm__async_get__tests (user_id, name) values (1, 'test') on conflict do nothing"
+            )
+            await session.execute(
+                "insert into pnorm__async_get__tests (user_id, name) values (3, 'test') on conflict do nothing"
+            )
 
-    with pytest.raises(MultipleRecordsReturnedException):
-        client.get(
-            DataModel,
-            "select * from test_data where test_method = %(test_method)s",
+    @pytest.mark.asyncio
+    async def test_no_records(self, client: PostgresClientCounter):
+        with assert_span(
             {
-                "test_method": "get",
-            },
-        )
-        assert False
+                "attributes": {
+                    "db.system.name": "postgresql",
+                    "db.collection.name": "pnorm__async_get__tests",
+                    "db.operation.name": "SELECT",
+                    "db.query.summary": "get from pnorm__async_get__tests",
+                    "db.query.text": "select * from pnorm__async_get__tests where user_id = %(user_id)s",
+                    "db.operation.parameter.user_id": 2,
+                    "server.address": "localhost",
+                    "server.port": 5434,
+                    "network.peer.address": "localhost",
+                    "network.peer.port": 5434,
+                    "db.operation.batch.size": 1,
+                    "db.response.returned_rows": 0,
+                }
+            }
+        ):
+            try:
+                await client.get(
+                    dict,
+                    "select * from pnorm__async_get__tests where user_id = %(user_id)s",
+                    {"user_id": 2},
+                    query_context=QueryContext(
+                        primary_table_name="pnorm__async_get__tests",
+                        operation_name="SELECT",
+                        query_summary="get from pnorm__async_get__tests",
+                    ),
+                )
+                raise AssertionError("NoRecordsReturnedException not raised")
+            except NoRecordsReturnedException:
+                ...
+            except Exception as e:
+                raise AssertionError(f"Unexpected exception: {e}")
 
-    assert client.connection is None
-    assert client.check_connections() == 1
-
-
-def test_multiple_rows_returned(client: PostgresClientCounter):
-    assert client.connection is None
-
-    with pytest.raises(NoRecordsReturnedException):
-        client.get(
-            DataModel,
-            "select * from test_data where test_method = %(test_method)s and test_name = %(test_name)s",
+    @pytest.mark.asyncio
+    async def test_one_record(self, client: PostgresClientCounter):
+        with assert_span(
             {
-                "test_method": "get",
-                "test_name": "test_simple_row_returned_does_not_exist",
-            },
-        )
-        assert False
+                "attributes": {
+                    "db.system.name": "postgresql",
+                    "db.collection.name": "pnorm__async_get__tests",
+                    "db.operation.name": "SELECT",
+                    "db.query.summary": "get from pnorm__async_get__tests",
+                    "db.query.text": "select * from pnorm__async_get__tests where user_id = %(user_id)s",
+                    "db.operation.parameter.user_id": 1,
+                    "server.address": "localhost",
+                    "server.port": 5434,
+                    "network.peer.address": "localhost",
+                    "network.peer.port": 5434,
+                    "db.operation.batch.size": 1,
+                    "db.response.returned_rows": 1,
+                }
+            }
+        ):
+            await client.get(
+                dict,
+                "select * from pnorm__async_get__tests where user_id = %(user_id)s",
+                {"user_id": 1},
+                query_context=QueryContext(
+                    primary_table_name="pnorm__async_get__tests",
+                    operation_name="SELECT",
+                    query_summary="get from pnorm__async_get__tests",
+                ),
+            )
 
-    assert client.connection is None
-    assert client.check_connections() == 1
-
-
-# test combine into return model
-def test_combine_into_return_model(client: PostgresClientCounter):
-    assert client.connection is None
-
-    class Params(BaseModel):
-        test_method: str
-        test_name: str
-        other_value: int
-
-    class DataExtended(DataModel):
-        other_value: int
-
-    row = client.get(
-        DataExtended,
-        "select * from test_data where test_method = %(test_method)s and test_name = %(test_name)s",
-        Params(
-            test_method="get",
-            test_name="test_combine_into_return_model",
-            other_value=1,
-        ),
-        combine_into_return_model=True,
-    )
-
-    assert row.test_method == "get"
-    assert row.test_name == "test_combine_into_return_model"
-    assert row.other_value == 1  # keeps existing data
-    assert row.value == "2"
-    assert client.connection is None
-    assert client.check_connections() == 1
-
-
-def test_session_connection(client: PostgresClientCounter):
-    assert client.connection is None
-
-    # todo: what happens if exception is raised (exception as part of sql or non part)
-    with client.start_session() as session:
-        assert session.connection is not None
-        row = session.get(
-            DataModel,
-            "select * from test_data where test_method = %(test_method)s and test_name = %(test_name)s",
+    @pytest.mark.asyncio
+    async def test_multiple_records(self, client: PostgresClientCounter):
+        with assert_span(
             {
-                "test_method": "get",
-                "test_name": "test_session_connection",
-            },
+                "attributes": {
+                    "db.system.name": "postgresql",
+                    "db.collection.name": "pnorm__async_get__tests",
+                    "db.operation.name": "SELECT",
+                    "db.query.summary": "get from pnorm__async_get__tests",
+                    "db.query.text": "select * from pnorm__async_get__tests where user_id < %(user_id)s",
+                    "db.operation.parameter.user_id": 5,
+                    "server.address": "localhost",
+                    "server.port": 5434,
+                    "network.peer.address": "localhost",
+                    "network.peer.port": 5434,
+                    "db.operation.batch.size": 1,
+                    "db.response.returned_rows": 2,
+                }
+            }
+        ):
+            try:
+                await client.get(
+                    dict,
+                    "select * from pnorm__async_get__tests where user_id < %(user_id)s",
+                    {"user_id": 5},
+                    query_context=QueryContext(
+                        primary_table_name="pnorm__async_get__tests",
+                        operation_name="SELECT",
+                        query_summary="get from pnorm__async_get__tests",
+                    ),
+                )
+                raise AssertionError("MultipleRecordsReturnedException not raised")
+            except MultipleRecordsReturnedException:
+                ...
+            except Exception as e:
+                raise AssertionError(f"Unexpected exception: {e}")
+
+    @pytest.mark.asyncio
+    async def test_dict(self, client: PostgresClientCounter):
+        response = await client.get(
+            dict,
+            "select * from pnorm__async_get__tests where user_id = %(user_id)s",
+            {"user_id": 1},
+            query_context=QueryContext(
+                primary_table_name="pnorm__async_get__tests",
+                operation_name="SELECT",
+                query_summary="get from pnorm__async_get__tests",
+            ),
         )
-        assert row.test_method == "get"
-        assert row.test_name == "test_session_connection"
-        assert row.value == "3"
 
-    assert client.connection is None
-    assert client.check_connections() == 1
+        assert response == {"user_id": 1, "name": "test"}
 
+    @pytest.mark.asyncio
+    async def test_pydantic(self, client: PostgresClientCounter):
+        class ResponseModel(BaseModel):
+            user_id: int
+            name: str
 
-def test_session_connection_old(client: PostgresClientCounter):
-    assert client.connection is None
-
-    # todo: what happens if exception is raised (exception as part of sql or non part)
-    with client.start_session() as session:
-        assert client.connection is not None
-        row = session.get(
-            DataModel,
-            "select * from test_data where test_method = %(test_method)s and test_name = %(test_name)s",
-            {
-                "test_method": "get",
-                "test_name": "test_session_connection",
-            },
+        response = await client.get(
+            ResponseModel,
+            "select * from pnorm__async_get__tests where user_id = %(user_id)s",
+            {"user_id": 1},
+            query_context=QueryContext(
+                primary_table_name="pnorm__async_get__tests",
+                operation_name="SELECT",
+                query_summary="get from pnorm__async_get__tests",
+            ),
         )
-        assert row.test_method == "get"
-        assert row.test_name == "test_session_connection"
-        assert row.value == "3"
 
-    assert client.connection is None
-    assert client.check_connections() == 1
+        assert response == ResponseModel(user_id=1, name="test")
 
+    @pytest.mark.asyncio
+    async def test_combine_into_return_model(self, client: PostgresClientCounter):
+        class ResponseModel(BaseModel):
+            user_id: int
+            name: str
 
-# test when in transaction works - but it has to commit anyways
-# what happens to things previously in the transaction?
-def test_transaction_connection(client: PostgresClientCounter): ...
+        response = await client.get(
+            ResponseModel,
+            "select name from pnorm__async_get__tests where user_id = %(user_id)s",
+            {"user_id": 1},
+            combine_into_return_model=True,
+            query_context=QueryContext(
+                primary_table_name="pnorm__async_get__tests",
+                operation_name="SELECT",
+                query_summary="get from pnorm__async_get__tests",
+            ),
+        )
+
+        assert response == ResponseModel(user_id=1, name="test")
+
+    @pytest.mark.asyncio
+    async def test_no_records_default(self, client: PostgresClientCounter):
+        response = await client.get(
+            dict,
+            "select * from pnorm__async_get__tests where user_id = %(user_id)s",
+            {"user_id": 2},
+            default={"user_id": 2, "name": "default"},
+            query_context=QueryContext(
+                primary_table_name="pnorm__async_get__tests",
+                operation_name="SELECT",
+                query_summary="get from pnorm__async_get__tests",
+            ),
+        )
+
+        assert response == {"user_id": 2, "name": "default"}
+
+    @pytest.mark.asyncio
+    async def test_db_timeout(self, client: PostgresClientCounter): ...
+
+    @pytest.mark.asyncio
+    async def test_sql_error(self, client: PostgresClientCounter):
+        try:
+            await client.get(
+                dict,
+                "select * from pnorm__async_get__tests where user_id == %(user_id)s",
+                {"user_id": 2},
+                query_context=QueryContext(
+                    primary_table_name="pnorm__async_get__tests",
+                    operation_name="SELECT",
+                    query_summary="get from pnorm__async_get__tests",
+                ),
+            )
+            raise AssertionError("psycopg.errors.UndefinedFunction not raised")
+        except psycopg.errors.UndefinedFunction:
+            ...
+        except:
+            raise AssertionError("Unexpected exception")
+
+    @pytest.mark.asyncio
+    async def test_type_error(self, client: PostgresClientCounter):
+        try:
+            await client.get(
+                dict,
+                "select * from pnorm__async_get__tests where user_id = %(user_id)s",
+                {"user_id": "hello"},
+                query_context=QueryContext(
+                    primary_table_name="pnorm__async_get__tests",
+                    operation_name="SELECT",
+                    query_summary="get from pnorm__async_get__tests",
+                ),
+            )
+            raise AssertionError("psycopg.errors.UndefinedFunction not raised")
+        except psycopg.errors.UndefinedFunction:
+            ...
+        except Exception as e:
+            ...
+
+    @pytest.mark.asyncio
+    async def test_params_dict(self, client: PostgresClientCounter):
+        response = await client.get(
+            dict,
+            "select * from pnorm__async_get__tests where user_id = %(user_id)s",
+            {"user_id": 1},
+            query_context=QueryContext(
+                primary_table_name="pnorm__async_get__tests",
+                operation_name="SELECT",
+                query_summary="get from pnorm__async_get__tests",
+            ),
+        )
+
+        assert response == {"user_id": 1, "name": "test"}
+
+    @pytest.mark.asyncio
+    async def test_params_pydantic(self, client: PostgresClientCounter):
+        class Params(BaseModel):
+            user_id: int
+
+        response = await client.get(
+            dict,
+            "select * from pnorm__async_get__tests where user_id = %(user_id)s",
+            Params(user_id=1),
+            query_context=QueryContext(
+                primary_table_name="pnorm__async_get__tests",
+                operation_name="SELECT",
+                query_summary="get from pnorm__async_get__tests",
+            ),
+        )
+
+        assert response == {"user_id": 1, "name": "test"}

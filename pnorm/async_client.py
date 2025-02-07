@@ -1,38 +1,40 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Mapping, MutableMapping, Sequence
 from contextlib import asynccontextmanager
-from typing import (
-    Any,
-    AsyncGenerator,
-    MutableMapping,
-    Optional,
-    Sequence,
-    cast,
-    overload,
-)
+from typing import Any, AsyncGenerator, Optional, cast, overload
 
 import psycopg
+from opentelemetry import trace
+from opentelemetry.trace import Span
 from psycopg import AsyncConnection
-from psycopg.rows import DictRow, TupleRow, dict_row
-from psycopg.sql import Composable
+from psycopg.rows import DictRow, dict_row
 from pydantic import BaseModel
 from rcheck import r
 
-from pnorm import (
+from .async_cursor import SingleCommitCursor, TransactionCursor
+from .credentials import CredentialsDict, CredentialsProtocol, PostgresCredentials
+from .exceptions import (
     ConnectionAlreadyEstablishedException,
     MultipleRecordsReturnedException,
     NoRecordsReturnedException,
+    connection_not_created,
 )
-from pnorm.async_cursor import SingleCommitCursor, TransactionCursor
-from pnorm.credentials import CredentialsDict, CredentialsProtocol, PostgresCredentials
-from pnorm.exceptions import connection_not_created
-from pnorm.mapping_utilities import (
+from .mapping_utilities import (
     combine_into_return,
     combine_many_into_return,
+    get_param_maybe_list,
     get_params,
 )
-from pnorm.pnorm_types import MappingT, ParamType, T
+from .pnorm_types import (
+    BaseModelMappingT,
+    BaseModelT,
+    MappingT,
+    ParamType,
+    Query,
+    QueryContext,
+)
 
 
 class AsyncPostgresClient:
@@ -45,55 +47,63 @@ class AsyncPostgresClient:
         if isinstance(credentials, PostgresCredentials):
             self.credentials = credentials
         elif isinstance(credentials, dict):
-            self.credentials = PostgresCredentials(**credentials)
+            self.credentials = PostgresCredentials.model_validate(credentials)
         else:
-            self.credentials = PostgresCredentials(**credentials.as_dict())
+            self.credentials = PostgresCredentials.model_validate(credentials.as_dict())
 
         self.connection: AsyncConnection[DictRow] | None = None
         self.auto_create_connection = r.check_bool(
             "auto_create_connection",
             auto_create_connection,
         )
-        self.cursor: SingleCommitCursor | TransactionCursor = SingleCommitCursor(self)
+        self.tracer = trace.get_tracer("pnorm.async_client")
+        self.cursor: SingleCommitCursor | TransactionCursor = SingleCommitCursor(
+            self, self.tracer
+        )
+        self.user_set_schema: str | None = None
 
     async def set_schema(self, *, schema: str) -> None:
         schema = r.check_str("schema", schema)
+        self.user_set_schema = schema
         await self.execute(f"select set_config('search_path', '{schema}', false)")
 
     @overload
     async def get(
         self,
         return_model: type[MappingT],
-        query: str | Composable,
+        query: Query,
         params: Optional[ParamType] = None,
-        default: Optional[T] = None,
+        default: Optional[MappingT] = None,
         combine_into_return_model: bool = False,
         *,
         timeout: Optional[float] = None,
+        query_context: Optional[QueryContext] = None,
     ) -> MappingT: ...
 
     @overload
     async def get(
         self,
-        return_model: type[T],
-        query: str | Composable,
+        return_model: type[BaseModelT],
+        query: Query,
         params: Optional[ParamType] = None,
-        default: Optional[T] = None,
+        default: Optional[BaseModelT] = None,
         combine_into_return_model: bool = False,
         *,
         timeout: Optional[float] = None,
-    ) -> T: ...
+        query_context: Optional[QueryContext] = None,
+    ) -> BaseModelT: ...
 
     async def get(
         self,
-        return_model: type[T] | type[MappingT],
-        query: str | Composable,
+        return_model: type[BaseModelMappingT],
+        query: Query,
         params: Optional[ParamType] = None,
-        default: Optional[T] = None,
+        default: Optional[BaseModelMappingT] = None,
         combine_into_return_model: bool = False,
         *,
         timeout: Optional[float] = None,
-    ) -> T | MappingT:
+        query_context: Optional[QueryContext] = None,
+    ) -> BaseModelMappingT:
         """Always returns exactly one record or raises an exception
 
         This method should be used by default when expecting exactly one row to
@@ -113,6 +123,10 @@ class AsyncPostgresClient:
         combine_into_return_model : bool = False
             Whether to combine the params mapping or pydantic model with the
             result of the query into the return_model
+        timeout : Optional[float] = None
+            Amount of time in seconds to wait for the query to complete. Default to no timeout
+        query_context : Optional[QueryContext] = None
+            Query metadata for telemetry purposes
 
         Raises
         ------
@@ -126,37 +140,55 @@ class AsyncPostgresClient:
         -------
         get : T of BaseModel
             Results of the SQL query marshalled into the return_model Pydantic model
-
-        Examples
-        --------
-        >>>
-        >>>
-        >>>
         """
+        query_as_string = await self._query_as_string(query)
         query_params = get_params("Query Params", params)
 
         async with self._handle_auto_connection():
             async with self.cursor(self.connection) as cursor:
-                try:
-                    async with asyncio.timeout(timeout):
-                        await cursor.execute(query, query_params)
-                        query_result = await cursor.fetchmany(2)
-                except asyncio.TimeoutError:
-                    if self.connection is not None:
-                        self.connection.cancel()
-                    raise
+                with self.tracer.start_as_current_span(query_as_string) as span:
+                    self._set_span_attributes(
+                        span,
+                        query_as_string,
+                        query_params,
+                        query_context,
+                    )
+
+                    try:
+                        async with asyncio.timeout(timeout):
+                            await cursor.execute(query, query_params)
+                            query_result = await cursor.fetchmany(2)
+                            span.set_attribute(
+                                "db.response.returned_rows",
+                                len(query_result),
+                            )
+                    except asyncio.TimeoutError as e:
+                        span.set_attribute("error.type", "timeout")
+                        span.record_exception(e)
+
+                        if self.connection is not None:
+                            self.connection.cancel()
+
+                        raise
+                    # except psycopg.OperationalError as e:
+                    #     # https://www.psycopg.org/docs/errors.html
+                    #     span.record_exception(e)
+                    #     span.set_attribute("db.response.status_code", str(e.pgcode))
 
         if len(query_result) >= 2:
-            msg = f"Received two or more records for query: {await self._query_as_string(query)}"
+            msg = f"Received two or more records for query: {query_as_string}"
             raise MultipleRecordsReturnedException(msg)
 
-        single: dict[str, Any] | BaseModel
+        single: MutableMapping[str, Any]
         if len(query_result) == 0:
             if default is None:
-                msg = f"Did not receive any records for query: {await self._query_as_string(query)}"
+                msg = f"Did not receive any records for query: {query_as_string}"
                 raise NoRecordsReturnedException(msg)
 
-            single = default
+            if isinstance(default, BaseModel):
+                single = default.model_dump()
+            else:
+                single = default
         else:
             single = query_result[0]
 
@@ -170,63 +202,68 @@ class AsyncPostgresClient:
     async def find(
         self,
         return_model: type[MappingT],
-        query: str | Composable,
+        query: Query,
         params: Optional[ParamType] = None,
         *,
         default: MappingT,
         combine_into_return_model: bool = False,
         timeout: Optional[float] = None,
+        query_context: Optional[QueryContext] = None,
     ) -> MappingT: ...
 
     @overload
     async def find(
         self,
-        return_model: type[T],
-        query: str | Composable,
+        return_model: type[BaseModelT],
+        query: Query,
         params: Optional[ParamType] = None,
         *,
-        default: T,
+        default: BaseModelT,
         combine_into_return_model: bool = False,
         timeout: Optional[float] = None,
-    ) -> T: ...
+        query_context: Optional[QueryContext] = None,
+    ) -> BaseModelT: ...
 
     @overload
     async def find(
         self,
         return_model: type[MappingT],
-        query: str | Composable,
+        query: Query,
         params: Optional[ParamType] = None,
         *,
         default: Optional[MappingT] = None,
         combine_into_return_model: bool = False,
         timeout: Optional[float] = None,
+        query_context: Optional[QueryContext] = None,
     ) -> MappingT | None: ...
 
     @overload
     async def find(
         self,
-        return_model: type[T],
-        query: str | Composable,
+        return_model: type[BaseModelT],
+        query: Query,
         params: Optional[ParamType] = None,
         *,
-        default: Optional[T] = None,
+        default: Optional[BaseModelT] = None,
         combine_into_return_model: bool = False,
         timeout: Optional[float] = None,
-    ) -> T | None: ...
+        query_context: Optional[QueryContext] = None,
+    ) -> BaseModelT | None: ...
 
     async def find(
         self,
-        return_model: type[T] | type[MappingT],
-        query: str | Composable,
+        return_model: type[BaseModelT] | type[MappingT],
+        query: Query,
         params: Optional[ParamType] = None,
         *,
-        default: Optional[T | MappingT] = None,
+        default: Optional[BaseModelT | MappingT] = None,
         combine_into_return_model: bool = False,
         timeout: Optional[float] = None,
-    ) -> T | MappingT | None:
+        query_context: Optional[QueryContext] = None,
+    ) -> BaseModelT | MappingT | None:
         """Return the first result if it exists
 
-        [desc]
+        Useful if you're not sure if the record exists, otherwise use `get`
 
         Parameters
         ----------
@@ -241,34 +278,51 @@ class AsyncPostgresClient:
         combine_into_return_model : bool = False
             Whether to combine the params mapping or pydantic model with the
             result of the query into the return_model
+        timeout : Optional[float] = None
+            Amount of time in seconds to wait for the query to complete. Default to no timeout
+        query_context : Optional[QueryContext] = None
+            Query metadata for telemetry purposes
 
         Returns
         -------
         find : T of BaseModel | None
             Results of the SQL query marshalled into the return_model Pydantic model
             or None if no rows returned
-
-        Examples
-        --------
-        >>>
-        >>>
-        >>>
         """
+        query_as_string = await self._query_as_string(query)
+
         query_params = get_params("Query Params", params)
         query_result: DictRow | BaseModel | MappingT | None
 
         async with self._handle_auto_connection():
             async with self.cursor(self.connection) as cursor:
-                try:
-                    async with asyncio.timeout(timeout):
-                        await cursor.execute(query, query_params)
-                        query_result = await cursor.fetchone()
-                except asyncio.TimeoutError:
-                    if self.connection is not None:
-                        self.connection.cancel()
-                    raise
+                with self.tracer.start_as_current_span(query_as_string) as span:
+                    self._set_span_attributes(
+                        span,
+                        query_as_string,
+                        query_params,
+                        query_context,
+                    )
 
-        if query_result is None or len(query_result) == 0:
+                    try:
+                        async with asyncio.timeout(timeout):
+                            await cursor.execute(query, query_params)
+                            query_result = await cursor.fetchone()
+
+                            span.set_attribute(
+                                "db.response.returned_rows",
+                                1 if query_result is not None else 0,
+                            )
+                    except asyncio.TimeoutError as e:
+                        span.set_attribute("error.type", "timeout")
+                        span.record_exception(e)
+
+                        if self.connection is not None:
+                            self.connection.cancel()
+
+                        raise
+
+        if query_result is None:
             if default is None:
                 return None
 
@@ -283,31 +337,34 @@ class AsyncPostgresClient:
     @overload
     async def select(
         self,
-        return_model: type[T],
-        query: str | Composable,
+        return_model: type[BaseModelT],
+        query: Query,
         params: Optional[ParamType] = None,
         *,
         timeout: Optional[float] = None,
-    ) -> tuple[T, ...]: ...
+        query_context: Optional[QueryContext] = None,
+    ) -> tuple[BaseModelT, ...]: ...
 
     @overload
     async def select(
         self,
         return_model: type[MappingT],
-        query: str | Composable,
+        query: Query,
         params: Optional[ParamType] = None,
         *,
         timeout: Optional[float] = None,
+        query_context: Optional[QueryContext] = None,
     ) -> tuple[MappingT, ...]: ...
 
     async def select(
         self,
-        return_model: type[T] | type[MappingT],
-        query: str | Composable,
+        return_model: type[BaseModelT] | type[MappingT],
+        query: Query,
         params: Optional[ParamType] = None,
         *,
         timeout: Optional[float] = None,
-    ) -> tuple[T, ...] | tuple[MappingT, ...]:
+        query_context: Optional[QueryContext] = None,
+    ) -> tuple[BaseModelT, ...] | tuple[MappingT, ...]:
         """Return all rows
 
         Parameters
@@ -318,48 +375,61 @@ class AsyncPostgresClient:
             SQL query to execute
         params : Optional[Mapping[str, Any] | BaseModel] = None
             Named parameters for the SQL query
+        timeout : Optional[float] = None
+            Amount of time in seconds to wait for the query to complete. Default to no timeout
+        query_context : Optional[QueryContext] = None
+            Query metadata for telemetry purposes
 
         Returns
         -------
         select : tuple[T of BaseModel, ...]
             Results of the SQL query marshalled into the return_model Pydantic model
-
-        Examples
-        --------
-        >>>
-        >>>
-        >>>
         """
+        query_as_string = await self._query_as_string(query)
+
         query_params = get_params("Query Params", params)
 
         async with self._handle_auto_connection():
             async with self.cursor(self.connection) as cursor:
-                try:
-                    async with asyncio.timeout(timeout):
-                        await cursor.execute(query, query_params)
-                        query_result = await cursor.fetchall()
-                except asyncio.TimeoutError:
-                    if self.connection is not None:
-                        self.connection.cancel()
-                    raise
+                with self.tracer.start_as_current_span(query_as_string) as span:
+                    self._set_span_attributes(
+                        span,
+                        query_as_string,
+                        query_params,
+                        query_context,
+                    )
+
+                    try:
+                        async with asyncio.timeout(timeout):
+                            await cursor.execute(query, query_params)
+                            query_result = await cursor.fetchall()
+                            span.set_attribute(
+                                "db.response.returned_rows",
+                                len(query_result),
+                            )
+                    except asyncio.TimeoutError as e:
+                        span.set_attribute("error.type", "timeout")
+                        span.record_exception(e)
+
+                        if self.connection is not None:
+                            self.connection.cancel()
+
+                        raise
 
         if len(query_result) == 0:
             return tuple()
 
         return combine_many_into_return(return_model, query_result)
 
-    # todo: select using fetchmany for pagination
-
     async def execute(
         self,
-        query: str | Composable,
-        params: Optional[ParamType] = None,
+        query: Query,
+        params: Optional[ParamType | Sequence[ParamType]] = None,
         *,
         timeout: Optional[float] = None,
+        query_context: Optional[QueryContext] = None,
     ) -> None:
         """Execute a SQL query
-
-        [desc]
 
         Parameters
         ----------
@@ -367,107 +437,98 @@ class AsyncPostgresClient:
             SQL query to execute
         params : Optional[Mapping[str, Any] | BaseModel] = None
             Named parameters for the SQL query
-
-        Examples
-        --------
-        >>>
-        >>>
-        >>>
+        timeout : Optional[float] = None
+            Amount of time in seconds to wait for the query to complete. Default to no timeout
+        query_context : Optional[QueryContext] = None
+            Query metadata for telemetry purposes
         """
-        query_params = get_params("Query Params", params)
+        query_as_string = await self._query_as_string(query)
+
+        query_params = get_param_maybe_list("Query Params", params)
 
         async with self._handle_auto_connection():
             async with self.cursor(self.connection) as cursor:
-                try:
-                    async with asyncio.timeout(timeout):
-                        await cursor.execute(query, query_params)
-                except asyncio.TimeoutError:
-                    if self.connection is not None:
-                        self.connection.cancel()
-                    raise
+                with self.tracer.start_as_current_span(query_as_string) as span:
+                    self._set_span_attributes(
+                        span,
+                        query_as_string,
+                        query_params,
+                        query_context,
+                    )
 
-    # @overload
-    # async def execute_values(
-    #     self,
-    #     query: str | Composable,
-    #     values: Optional[
-    #         Sequence[BaseModel] | Sequence[MutableMapping[str, Any]]
-    #     ] = None,
-    #     *,
-    #     template: Optional[Sequence[str]] = None,
-    #     return_model: type[MappingT],
-    # ) -> tuple[MappingT, ...]: ...
+                    try:
+                        async with asyncio.timeout(timeout):
+                            if isinstance(query_params, Sequence):
+                                span.set_attribute(
+                                    "db.operation.batch.size", len(query_params)
+                                )
+                                await cursor.executemany(query, query_params)
+                            else:
+                                await cursor.execute(query, query_params)
 
-    # @overload
-    # async def execute_values(
-    #     self,
-    #     query: str | Composable,
-    #     values: Optional[
-    #         Sequence[BaseModel] | Sequence[MutableMapping[str, Any]]
-    #     ] = None,
-    #     *,
-    #     template: Optional[Sequence[str]] = None,
-    #     return_model: type[T],
-    # ) -> tuple[T, ...]: ...
+                            span.set_attribute("db.response.returned_rows", 0)
+                    except asyncio.TimeoutError as e:
+                        span.set_attribute("error.type", "timeout")
+                        span.record_exception(e)
 
-    # @overload
-    # async def execute_values(
-    #     self,
-    #     query: str | Composable,
-    #     values: Optional[
-    #         Sequence[BaseModel] | Sequence[MutableMapping[str, Any]]
-    #     ] = None,
-    #     *,
-    #     template: Optional[Sequence[str]] = None,
-    #     return_model: None = None,
-    # ) -> None: ...
+                        if self.connection is not None:
+                            self.connection.cancel()
 
-    # async def execute_values(
-    #     self,
-    #     query: str | Composable,
-    #     values: Optional[Sequence[BaseModel] | Sequence[MappingT]] = None,
-    #     *,
-    #     template: Optional[Sequence[str]] = None,
-    #     return_model: Optional[type[T] | type[MappingT]] = None,
-    # ) -> tuple[T, ...] | tuple[MappingT, ...] | None:
-    #     """Execute a sql query with values
+                        raise
 
-    #     Parameters
-    #     ----------
-    #     query : str
-    #         SQL query to execute
-    #     values :
+    @asynccontextmanager
+    async def start_session(
+        self,
+        *,
+        schema: Optional[str] = None,
+    ) -> AsyncGenerator[AsyncPostgresClient, None]:
+        """
 
-    #     template :
+        Examples
+        --------
+        async with db.start_session() as session:
+            await session.get(...)
+        """
+        original_auto_create_connection = self.auto_create_connection
+        self.auto_create_connection = False
+        close_connection_after_use = False
 
-    #     Examples
-    #     --------
-    #     >>>
-    #     >>>
-    #     >>>
-    #     """
-    #     data: list[Any] | dict[str, Any] = []
+        if self.connection is None:
+            await self._create_connection()
+            close_connection_after_use = True
 
-    #     if values is None:
-    #         data = get_params("Values", values)
-    #     elif isinstance(values, list) and isinstance(values[0], tuple):
-    #         data = values
-    #     else:
-    #         data = [tuple(get_params("Query params", v).values()) for v in values]
+        if schema is not None:
+            await self.set_schema(schema=schema)
 
-    #     async with self._handle_auto_connection():
-    #         async with self.cursor(self.connection) as cursor:
-    #            await cursor.executemany(cursor, query, data, template)
+        try:
+            yield self
+        except:
+            await self._rollback()
+            raise
+        finally:
+            if self.connection is not None and close_connection_after_use:
+                await self._end_connection()
 
-    #             if return_model is None:
-    #                 return
+            self.auto_create_connection = original_auto_create_connection
 
-    #             query_result = await cursor.fetchall()
+    @asynccontextmanager
+    async def start_transaction(self) -> AsyncGenerator[AsyncPostgresClient, None]:
+        """
 
-    #     if len(query_result) == 0:
-    #         return tuple()
+        Examples
+        --------
+        async with session.start_transaction() as tx:
+            await tx.get(...)
+        """
+        self._create_transaction()
 
-    #     return combine_many_into_return(return_model, query_result)
+        try:
+            yield self
+        except:
+            await self._rollback()
+            raise
+        finally:
+            await self._end_transaction()
 
     async def _create_connection(self) -> None:
         if self.connection is not None:
@@ -496,11 +557,11 @@ class AsyncPostgresClient:
         await self.connection.rollback()
 
     def _create_transaction(self) -> None:
-        self.cursor = TransactionCursor(self)
+        self.cursor = TransactionCursor(self, self.tracer)
 
     async def _end_transaction(self) -> None:
         await self.cursor.commit()
-        self.cursor = SingleCommitCursor(self)
+        self.cursor = SingleCommitCursor(self, self.tracer)
 
     @asynccontextmanager
     async def _handle_auto_connection(self) -> AsyncGenerator[None, None]:
@@ -519,50 +580,76 @@ class AsyncPostgresClient:
             if close_connection_after_use:
                 await self._end_connection()
 
-    async def _query_as_string(self, query: str | Composable) -> str:
+    async def _query_as_string(self, query: Query) -> str:
         if isinstance(query, str):
             return query
+
+        if isinstance(query, bytes):
+            return query.decode("utf-8")
 
         async with self._handle_auto_connection():
             async with self.cursor(self.connection) as cursor:
                 return query.as_string(cursor)
 
-    @asynccontextmanager
-    async def start_transaction(self) -> AsyncGenerator[AsyncPostgresClient, None]:
-        self._create_transaction()
-
-        try:
-            yield self
-        except:
-            await self._rollback()
-            raise
-        finally:
-            await self._end_transaction()
-
-    @asynccontextmanager
-    async def start_session(
+    # TODO: instead of dict[str, Any] maybe dict[str, str | int | float | bool ... ] ? datetime, uuid, dict, list ...
+    def _set_span_attributes(
         self,
-        *,
-        schema: Optional[str] = None,
-    ) -> AsyncGenerator[AsyncPostgresClient, None]:
-        original_auto_create_connection = self.auto_create_connection
-        self.auto_create_connection = False
-        close_connection_after_use = False
+        span: Span,
+        query_as_string: str,
+        query_params: Optional[dict[str, Any] | Sequence[dict[str, Any]]] = None,
+        query_context: Optional[QueryContext] = None,
+    ) -> None:
+        span.set_attribute("db.system.name", "postgresql")
 
-        if self.connection is None:
-            await self._create_connection()
-            close_connection_after_use = True
+        if self.user_set_schema is not None:
+            span.set_attribute("db.namespace", self.user_set_schema)
 
-        if schema is not None:
-            await self.set_schema(schema=schema)
+        if query_context is not None:
+            if query_context.primary_table_name is not None:
+                span.set_attribute(
+                    "db.collection.name",
+                    query_context.primary_table_name,
+                )
 
-        try:
-            yield self
-        except:
-            await self._rollback()
-            raise
-        finally:
-            if self.connection is not None and close_connection_after_use:
-                await self._end_connection()
+            if query_context.operation_name is not None:
+                span.set_attribute("db.operation.name", query_context.operation_name)
 
-            self.auto_create_connection = original_auto_create_connection
+            if query_context.query_summary is not None:
+                span.set_attribute("db.query.summary", query_context.query_summary)
+
+        span.set_attribute(
+            "db.query.text",
+            query_as_string,
+        )  # TODO: remove repeated whitespace, newlines etc...
+        span.set_attribute("server.address", self.credentials.host)
+        span.set_attribute("server.port", self.credentials.port)
+        span.set_attribute("network.peer.address", self.credentials.host)
+        span.set_attribute("network.peer.port", self.credentials.port)
+        span.set_attribute("db.operation.batch.size", 1)
+
+        if query_params is None:
+            return
+
+        if isinstance(query_params, Mapping):
+            for key, value in query_params.items():
+                # TODO: secret values?
+                # either have pydantic models with SecretStr
+                # or in context have a list of values to replace with **
+                if isinstance(value, str | bytes | int | float | bool):
+                    span.set_attribute(f"db.operation.parameter.{key}", value)
+                else:
+                    span.set_attribute(f"db.operation.parameter.{key}", str(value))
+
+            return
+
+        # TODO: this could be bad for inserting data... maybe have a way to turn off in execute
+        # or have a way to specify only certain parameters are being included
+        for i, params in enumerate(query_params):
+            for key, value in params.items():
+                # TODO: secret values?
+                # either have pydantic models with SecretStr
+                # or in context have a list of values to replace with **
+                if isinstance(value, str | bytes | int | float | bool):
+                    span.set_attribute(f"db.operation.parameter.{i}.{key}", value)
+                else:
+                    span.set_attribute(f"db.operation.parameter.{i}.{key}", str(value))

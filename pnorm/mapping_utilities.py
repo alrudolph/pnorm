@@ -1,17 +1,34 @@
 from __future__ import annotations
 
-from typing import Any, MutableMapping, Optional, Sequence, cast, overload
+from collections.abc import Mapping, Sequence
+from typing import Any, MutableMapping, Optional, cast, overload
 
 from pydantic import BaseModel
 from rcheck import r
 
-from pnorm import MarshallRecordException
-from pnorm.pnorm_types import MappingT, ParamType, T
+from .exceptions import MarshallRecordException
+from .pnorm_types import BaseModelMappingT, BaseModelT, MappingT, ParamType
+
+
+@overload
+def get_params(
+    name: str,
+    params: ParamType,
+    by_alias: bool = False,
+) -> dict[str, Any]: ...
+
+
+@overload
+def get_params(
+    name: str,
+    params: None,
+    by_alias: bool = False,
+) -> None: ...
 
 
 def get_params(
     name: str,
-    params: Optional[ParamType],
+    params: Optional[ParamType] = None,
     by_alias: bool = False,
 ) -> dict[str, Any] | None:
     if params is None:
@@ -27,11 +44,49 @@ def get_params(
 
 
 @overload
+def get_param_maybe_list(
+    name: str,
+    params: ParamType,
+    by_alias: bool = False,
+) -> dict[str, Any]: ...
+
+
+@overload
+def get_param_maybe_list(
+    name: str,
+    params: Sequence[ParamType],
+    by_alias: bool = False,
+) -> list[dict[str, Any]]: ...
+
+
+@overload
+def get_param_maybe_list(
+    name: str,
+    params: None,
+    by_alias: bool = False,
+) -> None: ...
+
+
+def get_param_maybe_list(
+    name: str,
+    params: Optional[ParamType | Sequence[ParamType]] = None,
+    by_alias: bool = False,
+) -> dict[str, Any] | list[dict[str, Any]] | None:
+    if params is None:
+        return None
+
+    if isinstance(params, BaseModel | Mapping):
+        return get_params(name, params, by_alias)
+
+    return [get_params(name, param, by_alias) for param in params]
+
+
+@overload
 def combine_into_return(
-    return_model: type[T],
+    return_model: type[BaseModelT],
     result: MutableMapping[str, Any] | BaseModel,
     params: Optional[ParamType] = None,
-) -> T: ...
+) -> BaseModelT: ...
 
 
 @overload
@@ -43,10 +98,10 @@ def combine_into_return(
 
 
 def combine_into_return(
-    return_model: type[T] | type[MappingT],
+    return_model: type[BaseModelMappingT],
     result: MutableMapping[str, Any] | BaseModel,
     params: Optional[ParamType] = None,
-) -> T | MappingT:
+) -> BaseModelMappingT:
     result_dict = get_params("Query Result", result)
 
     if params is not None:
@@ -62,26 +117,24 @@ def combine_into_return(
 
 @overload
 def combine_many_into_return(
-    return_model: type[T],
-    result: Sequence[MutableMapping[str, Any] | BaseModel],
+    return_model: type[BaseModelT],
+    results: Sequence[MutableMapping[str, Any] | BaseModel],
     params: Optional[ParamType] = None,
-) -> tuple[T, ...]: ...
+) -> tuple[BaseModelT, ...]: ...
 
 
 @overload
 def combine_many_into_return(
     return_model: type[MappingT],
-    result: Sequence[MutableMapping[str, Any] | BaseModel],
+    results: Sequence[MutableMapping[str, Any] | BaseModel],
     params: Optional[ParamType] = None,
 ) -> tuple[MappingT, ...]: ...
 
 
 def combine_many_into_return(
-    return_model: type[T] | type[MappingT],
+    return_model: type[BaseModelMappingT],
     results: Sequence[MutableMapping[str, Any] | BaseModel],
     params: Optional[ParamType] = None,
-) -> tuple[T, ...] | tuple[MappingT, ...]:
-
-    return tuple(
-        combine_into_return(return_model, result, params) for result in results
-    )
+) -> tuple[BaseModelMappingT, ...]:
+    gen = (combine_into_return(return_model, result, params) for result in results)
+    return tuple(gen)

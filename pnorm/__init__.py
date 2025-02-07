@@ -1,4 +1,5 @@
-from .credentials import PostgresCredentials  # type: ignore
+from .async_client import AsyncPostgresClient
+from .credentials import PostgresCredentials
 from .exceptions import (
     ConnectionAlreadyEstablishedException,
     ConnectionNotEstablishedException,
@@ -6,19 +7,10 @@ from .exceptions import (
     MultipleRecordsReturnedException,
     NoRecordsReturnedException,
 )
-
-...  # type: ignore
-
-from .async_client import AsyncPostgresClient
-from .client import PostgresClient
-from .model import Model, PnormConfig
-from .pnorm_types import PostgresJSON
+from .pnorm_types import PostgresJSON, QueryContext
 
 __all__ = [
     "PostgresCredentials",
-    "PostgresClient",
-    "Model",
-    "PnormConfig",
     "NoRecordsReturnedException",
     "MultipleRecordsReturnedException",
     "ConnectionAlreadyEstablishedException",
@@ -26,4 +18,5 @@ __all__ = [
     "MarshallRecordException",
     "PostgresJSON",
     "AsyncPostgresClient",
+    "QueryContext",
 ]
