@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Mapping, MutableMapping, Sequence
+from collections.abc import MutableMapping, Sequence
 from contextlib import asynccontextmanager
-from typing import Any, AsyncGenerator, Optional, cast, overload
+from typing import Any, AsyncGenerator, Literal, Optional, cast, overload
 
 import psycopg
 from opentelemetry import trace
@@ -21,6 +21,7 @@ from .exceptions import (
     NoRecordsReturnedException,
     connection_not_created,
 )
+from .hooks.base import BaseHook
 from .mapping_utilities import (
     combine_into_return,
     combine_many_into_return,
@@ -42,6 +43,8 @@ class AsyncPostgresClient:
         self,
         credentials: CredentialsProtocol | CredentialsDict | PostgresCredentials,
         auto_create_connection: bool = True,
+        # TODO:
+        hooks: Optional[list[BaseHook]] = None,
     ) -> None:
         # Want to keep as the PostgresCredentials class for SecretStr
         if isinstance(credentials, PostgresCredentials):
@@ -58,9 +61,11 @@ class AsyncPostgresClient:
         )
         self.tracer = trace.get_tracer("pnorm.async_client")
         self.cursor: SingleCommitCursor | TransactionCursor = SingleCommitCursor(
-            self, self.tracer
+            self,
+            self.tracer,
         )
         self.user_set_schema: str | None = None
+        self.default_hooks = hooks
 
     async def set_schema(self, *, schema: str) -> None:
         schema = r.check_str("schema", schema)
@@ -78,6 +83,8 @@ class AsyncPostgresClient:
         *,
         timeout: Optional[float] = None,
         query_context: Optional[QueryContext] = None,
+        # TODO:
+        hooks: Optional[list[BaseHook]] = None,
     ) -> MappingT: ...
 
     @overload
@@ -91,6 +98,8 @@ class AsyncPostgresClient:
         *,
         timeout: Optional[float] = None,
         query_context: Optional[QueryContext] = None,
+        # TODO:
+        hooks: Optional[list[BaseHook]] = None,
     ) -> BaseModelT: ...
 
     async def get(
@@ -103,6 +112,8 @@ class AsyncPostgresClient:
         *,
         timeout: Optional[float] = None,
         query_context: Optional[QueryContext] = None,
+        # TODO:
+        hooks: Optional[list[BaseHook]] = None,
     ) -> BaseModelMappingT:
         """Always returns exactly one record or raises an exception
 
@@ -143,54 +154,44 @@ class AsyncPostgresClient:
         """
         query_as_string = await self._query_as_string(query)
         query_params = get_params("Query Params", params)
+        hooks = self._get_hooks(hooks)
 
         async with self._handle_auto_connection():
             async with self.cursor(self.connection) as cursor:
-                with self.tracer.start_as_current_span(query_as_string) as span:
-                    self._set_span_attributes(
-                        span,
-                        query_as_string,
-                        query_params,
-                        query_context,
-                    )
+                _apply_pre_hooks(hooks, query_as_string, query_params, query_context)
 
-                    try:
-                        async with asyncio.timeout(timeout):
-                            await cursor.execute(query, query_params)
-                            query_result = await cursor.fetchmany(2)
-                            span.set_attribute(
-                                "db.response.returned_rows",
-                                len(query_result),
-                            )
-                    except asyncio.TimeoutError as e:
-                        span.set_attribute("error.type", "timeout")
-                        span.record_exception(e)
+                try:
+                    async with asyncio.timeout(timeout):
+                        await cursor.execute(query, query_params)
+                        query_result = await cursor.fetchmany(2)
+                except asyncio.TimeoutError as e:
+                    _apply_exception_hooks(hooks, e)
 
-                        if self.connection is not None:
-                            self.connection.cancel()
+                    if self.connection is not None:
+                        self.connection.cancel()
 
-                        raise
-                    # except psycopg.OperationalError as e:
-                    #     # https://www.psycopg.org/docs/errors.html
-                    #     span.record_exception(e)
-                    #     span.set_attribute("db.response.status_code", str(e.pgcode))
+                    raise
 
         if len(query_result) >= 2:
             msg = f"Received two or more records for query: {query_as_string}"
+            _apply_post_hooks(hooks, "error", len(query_result))
             raise MultipleRecordsReturnedException(msg)
 
         single: MutableMapping[str, Any]
         if len(query_result) == 0:
             if default is None:
                 msg = f"Did not receive any records for query: {query_as_string}"
+                _apply_post_hooks(hooks, "error", 0)
                 raise NoRecordsReturnedException(msg)
 
+            _apply_post_hooks(hooks, "success", 0)
             if isinstance(default, BaseModel):
                 single = default.model_dump()
             else:
                 single = default
         else:
             single = query_result[0]
+            _apply_post_hooks(hooks, "success", 1)
 
         return combine_into_return(
             return_model,
@@ -209,6 +210,8 @@ class AsyncPostgresClient:
         combine_into_return_model: bool = False,
         timeout: Optional[float] = None,
         query_context: Optional[QueryContext] = None,
+        # TODO:
+        hooks: Optional[list[BaseHook]] = None,
     ) -> MappingT: ...
 
     @overload
@@ -222,6 +225,8 @@ class AsyncPostgresClient:
         combine_into_return_model: bool = False,
         timeout: Optional[float] = None,
         query_context: Optional[QueryContext] = None,
+        # TODO:
+        hooks: Optional[list[BaseHook]] = None,
     ) -> BaseModelT: ...
 
     @overload
@@ -235,6 +240,8 @@ class AsyncPostgresClient:
         combine_into_return_model: bool = False,
         timeout: Optional[float] = None,
         query_context: Optional[QueryContext] = None,
+        # TODO:
+        hooks: Optional[list[BaseHook]] = None,
     ) -> MappingT | None: ...
 
     @overload
@@ -248,6 +255,8 @@ class AsyncPostgresClient:
         combine_into_return_model: bool = False,
         timeout: Optional[float] = None,
         query_context: Optional[QueryContext] = None,
+        # TODO:
+        hooks: Optional[list[BaseHook]] = None,
     ) -> BaseModelT | None: ...
 
     async def find(
@@ -260,6 +269,8 @@ class AsyncPostgresClient:
         combine_into_return_model: bool = False,
         timeout: Optional[float] = None,
         query_context: Optional[QueryContext] = None,
+        # TODO:
+        hooks: Optional[list[BaseHook]] = None,
     ) -> BaseModelT | MappingT | None:
         """Return the first result if it exists
 
@@ -293,41 +304,33 @@ class AsyncPostgresClient:
 
         query_params = get_params("Query Params", params)
         query_result: DictRow | BaseModel | MappingT | None
+        hooks = self._get_hooks(hooks)
 
         async with self._handle_auto_connection():
             async with self.cursor(self.connection) as cursor:
-                with self.tracer.start_as_current_span(query_as_string) as span:
-                    self._set_span_attributes(
-                        span,
-                        query_as_string,
-                        query_params,
-                        query_context,
-                    )
+                _apply_pre_hooks(hooks, query_as_string, query_params, query_context)
 
-                    try:
-                        async with asyncio.timeout(timeout):
-                            await cursor.execute(query, query_params)
-                            query_result = await cursor.fetchone()
+                try:
+                    async with asyncio.timeout(timeout):
+                        await cursor.execute(query, query_params)
+                        query_result = await cursor.fetchone()
+                except asyncio.TimeoutError as e:
+                    _apply_exception_hooks(hooks, e)
 
-                            span.set_attribute(
-                                "db.response.returned_rows",
-                                1 if query_result is not None else 0,
-                            )
-                    except asyncio.TimeoutError as e:
-                        span.set_attribute("error.type", "timeout")
-                        span.record_exception(e)
+                    if self.connection is not None:
+                        self.connection.cancel()
 
-                        if self.connection is not None:
-                            self.connection.cancel()
-
-                        raise
+                    raise
 
         if query_result is None:
+            _apply_post_hooks(hooks, "success", 0)
+
             if default is None:
                 return None
 
             query_result = default
 
+        _apply_post_hooks(hooks, "success", 1)
         return combine_into_return(
             return_model,
             query_result,
@@ -343,6 +346,8 @@ class AsyncPostgresClient:
         *,
         timeout: Optional[float] = None,
         query_context: Optional[QueryContext] = None,
+        # TODO:
+        hooks: Optional[list[BaseHook]] = None,
     ) -> tuple[BaseModelT, ...]: ...
 
     @overload
@@ -354,6 +359,8 @@ class AsyncPostgresClient:
         *,
         timeout: Optional[float] = None,
         query_context: Optional[QueryContext] = None,
+        # TODO:
+        hooks: Optional[list[BaseHook]] = None,
     ) -> tuple[MappingT, ...]: ...
 
     async def select(
@@ -364,6 +371,8 @@ class AsyncPostgresClient:
         *,
         timeout: Optional[float] = None,
         query_context: Optional[QueryContext] = None,
+        # TODO:
+        hooks: Optional[list[BaseHook]] = None,
     ) -> tuple[BaseModelT, ...] | tuple[MappingT, ...]:
         """Return all rows
 
@@ -380,6 +389,11 @@ class AsyncPostgresClient:
         query_context : Optional[QueryContext] = None
             Query metadata for telemetry purposes
 
+        Note
+        ----
+        This method cannot be used for inserting multiple rows and then returning all of the
+        inserted rows.
+
         Returns
         -------
         select : tuple[T of BaseModel, ...]
@@ -388,33 +402,25 @@ class AsyncPostgresClient:
         query_as_string = await self._query_as_string(query)
 
         query_params = get_params("Query Params", params)
+        hooks = self._get_hooks(hooks)
 
         async with self._handle_auto_connection():
             async with self.cursor(self.connection) as cursor:
-                with self.tracer.start_as_current_span(query_as_string) as span:
-                    self._set_span_attributes(
-                        span,
-                        query_as_string,
-                        query_params,
-                        query_context,
-                    )
+                _apply_pre_hooks(hooks, query_as_string, query_params, query_context)
 
-                    try:
-                        async with asyncio.timeout(timeout):
-                            await cursor.execute(query, query_params)
-                            query_result = await cursor.fetchall()
-                            span.set_attribute(
-                                "db.response.returned_rows",
-                                len(query_result),
-                            )
-                    except asyncio.TimeoutError as e:
-                        span.set_attribute("error.type", "timeout")
-                        span.record_exception(e)
+                try:
+                    async with asyncio.timeout(timeout):
+                        await cursor.execute(query, query_params)
+                        query_result = await cursor.fetchall()
+                except asyncio.TimeoutError as e:
+                    _apply_exception_hooks(hooks, e)
 
-                        if self.connection is not None:
-                            self.connection.cancel()
+                    if self.connection is not None:
+                        self.connection.cancel()
 
-                        raise
+                    raise
+
+        _apply_post_hooks(hooks, "success", len(query_result))
 
         if len(query_result) == 0:
             return tuple()
@@ -428,6 +434,8 @@ class AsyncPostgresClient:
         *,
         timeout: Optional[float] = None,
         query_context: Optional[QueryContext] = None,
+        # TODO:
+        hooks: Optional[list[BaseHook]] = None,
     ) -> None:
         """Execute a SQL query
 
@@ -445,36 +453,36 @@ class AsyncPostgresClient:
         query_as_string = await self._query_as_string(query)
 
         query_params = get_param_maybe_list("Query Params", params)
+        hooks = self._get_hooks(hooks)
 
         async with self._handle_auto_connection():
             async with self.cursor(self.connection) as cursor:
-                with self.tracer.start_as_current_span(query_as_string) as span:
-                    self._set_span_attributes(
-                        span,
-                        query_as_string,
-                        query_params,
-                        query_context,
-                    )
+                _apply_pre_hooks(hooks, query_as_string, query_params, query_context)
 
-                    try:
-                        async with asyncio.timeout(timeout):
-                            if isinstance(query_params, Sequence):
-                                span.set_attribute(
-                                    "db.operation.batch.size", len(query_params)
-                                )
-                                await cursor.executemany(query, query_params)
-                            else:
-                                await cursor.execute(query, query_params)
+                try:
+                    async with asyncio.timeout(timeout):
+                        if isinstance(query_params, Sequence):
+                            await cursor.executemany(query, query_params)
+                        else:
+                            await cursor.execute(query, query_params)
 
-                            span.set_attribute("db.response.returned_rows", 0)
-                    except asyncio.TimeoutError as e:
-                        span.set_attribute("error.type", "timeout")
-                        span.record_exception(e)
+                        _apply_post_hooks(
+                            hooks,
+                            "success",
+                            rows_returned=0,
+                            batch_size=(
+                                len(query_params)
+                                if isinstance(query_params, Sequence)
+                                else 1
+                            ),
+                        )
+                except asyncio.TimeoutError as e:
+                    _apply_exception_hooks(hooks, e)
 
-                        if self.connection is not None:
-                            self.connection.cancel()
+                    if self.connection is not None:
+                        self.connection.cancel()
 
-                        raise
+                    raise
 
     @asynccontextmanager
     async def start_session(
@@ -591,65 +599,116 @@ class AsyncPostgresClient:
             async with self.cursor(self.connection) as cursor:
                 return query.as_string(cursor)
 
+    def _get_hooks(self, hooks: Optional[list[BaseHook]]) -> list[BaseHook]:
+        match self.default_hooks, hooks:
+            case None, None:
+                return []
+            case None, _:
+                # Mypy doesn't like this without the cast, but it should be correct...
+                return cast(list[BaseHook], hooks)
+            case _, None:
+                return cast(list[BaseHook], self.default_hooks)
+            case _, _:
+                df = cast(list[BaseHook], self.default_hooks)
+                h = cast(list[BaseHook], hooks)
+                return df + h
+
     # TODO: instead of dict[str, Any] maybe dict[str, str | int | float | bool ... ] ? datetime, uuid, dict, list ...
-    def _set_span_attributes(
-        self,
-        span: Span,
-        query_as_string: str,
-        query_params: Optional[dict[str, Any] | Sequence[dict[str, Any]]] = None,
-        query_context: Optional[QueryContext] = None,
-    ) -> None:
-        span.set_attribute("db.system.name", "postgresql")
+    # def _set_span_attributes(
+    #     self,
+    #     span: Span,
+    #     query_as_string: str,
+    #     query_params: Optional[dict[str, Any] | Sequence[dict[str, Any]]] = None,
+    #     query_context: Optional[QueryContext] = None,
+    # ) -> None:
+    #     span.set_attribute("db.system.name", "postgresql")
 
-        if self.user_set_schema is not None:
-            span.set_attribute("db.namespace", self.user_set_schema)
+    #     if self.user_set_schema is not None:
+    #         span.set_attribute("db.namespace", self.user_set_schema)
 
-        if query_context is not None:
-            if query_context.primary_table_name is not None:
-                span.set_attribute(
-                    "db.collection.name",
-                    query_context.primary_table_name,
-                )
+    #     if query_context is not None:
+    #         if query_context.primary_table_name is not None:
+    #             span.set_attribute(
+    #                 "db.collection.name",
+    #                 query_context.primary_table_name,
+    #             )
 
-            if query_context.operation_name is not None:
-                span.set_attribute("db.operation.name", query_context.operation_name)
+    #         if query_context.operation_name is not None:
+    #             span.set_attribute("db.operation.name", query_context.operation_name)
 
-            if query_context.query_summary is not None:
-                span.set_attribute("db.query.summary", query_context.query_summary)
+    #         if query_context.query_summary is not None:
+    #             span.set_attribute("db.query.summary", query_context.query_summary)
 
-        span.set_attribute(
-            "db.query.text",
-            query_as_string,
-        )  # TODO: remove repeated whitespace, newlines etc...
-        span.set_attribute("server.address", self.credentials.host)
-        span.set_attribute("server.port", self.credentials.port)
-        span.set_attribute("network.peer.address", self.credentials.host)
-        span.set_attribute("network.peer.port", self.credentials.port)
-        span.set_attribute("db.operation.batch.size", 1)
+    #     span.set_attribute(
+    #         "db.query.text",
+    #         query_as_string,
+    #     )  # TODO: remove repeated whitespace, newlines etc...
+    #     span.set_attribute("server.address", self.credentials.host)
+    #     span.set_attribute("server.port", self.credentials.port)
+    #     span.set_attribute("network.peer.address", self.credentials.host)
+    #     span.set_attribute("network.peer.port", self.credentials.port)
+    #     span.set_attribute("db.operation.batch.size", 1)
 
-        if query_params is None:
-            return
+    #     if query_params is None:
+    #         return
 
-        if isinstance(query_params, Mapping):
-            for key, value in query_params.items():
-                # TODO: secret values?
-                # either have pydantic models with SecretStr
-                # or in context have a list of values to replace with **
-                if isinstance(value, str | bytes | int | float | bool):
-                    span.set_attribute(f"db.operation.parameter.{key}", value)
-                else:
-                    span.set_attribute(f"db.operation.parameter.{key}", str(value))
+    #     if isinstance(query_params, Mapping):
+    #         for key, value in query_params.items():
+    #             # TODO: secret values?
+    #             # either have pydantic models with SecretStr
+    #             # or in context have a list of values to replace with **
+    #             if isinstance(value, str | bytes | int | float | bool):
+    #                 span.set_attribute(f"db.operation.parameter.{key}", value)
+    #             else:
+    #                 span.set_attribute(f"db.operation.parameter.{key}", str(value))
 
-            return
+    #         return
 
-        # TODO: this could be bad for inserting data... maybe have a way to turn off in execute
-        # or have a way to specify only certain parameters are being included
-        for i, params in enumerate(query_params):
-            for key, value in params.items():
-                # TODO: secret values?
-                # either have pydantic models with SecretStr
-                # or in context have a list of values to replace with **
-                if isinstance(value, str | bytes | int | float | bool):
-                    span.set_attribute(f"db.operation.parameter.{i}.{key}", value)
-                else:
-                    span.set_attribute(f"db.operation.parameter.{i}.{key}", str(value))
+    #     # TODO: this could be bad for inserting data... maybe have a way to turn off in execute
+    #     # or have a way to specify only certain parameters are being included
+    #     for i, params in enumerate(query_params):
+    #         for key, value in params.items():
+    #             # TODO: secret values?
+    #             # either have pydantic models with SecretStr
+    #             # or in context have a list of values to replace with **
+    #             if isinstance(value, str | bytes | int | float | bool):
+    #                 span.set_attribute(f"db.operation.parameter.{i}.{key}", value)
+    #             else:
+    #                 span.set_attribute(f"db.operation.parameter.{i}.{key}", str(value))
+
+
+def _apply_pre_hooks(
+    hooks: Optional[list[BaseHook]],
+    query: str,
+    query_params: Optional[dict[str, Any] | Sequence[dict[str, Any]]],
+    query_context: Optional[QueryContext],
+) -> None:
+    if hooks is None:
+        return
+
+    for hook in hooks:
+        hook.pre_query(query, query_params, query_context)
+
+
+def _apply_post_hooks(
+    hooks: Optional[list[BaseHook]],
+    result_type: Literal["success", "error"],
+    rows_returned: int,
+    batch_size: int = 1,
+) -> None:
+    if hooks is None:
+        return
+
+    for hook in hooks:
+        hook.post_query(result_type, rows_returned, batch_size)
+
+
+def _apply_exception_hooks(
+    hooks: Optional[list[BaseHook]],
+    exception: Exception,
+) -> None:
+    if hooks is None:
+        return
+
+    for hook in hooks:
+        hook.on_exception(exception)

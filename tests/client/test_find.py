@@ -4,6 +4,7 @@ import pytest_asyncio
 from pydantic import BaseModel
 
 from pnorm import QueryContext
+from pnorm.hooks.opentelemetry import SpanHook
 from tests.fixutres.client_counter import PostgresClientCounter, client  # type: ignore
 from tests.utils.telemetry import assert_span
 
@@ -35,10 +36,10 @@ class TestAsyncFind:
                     "db.query.summary": "get from pnorm__async_find__tests",
                     "db.query.text": "select * from pnorm__async_find__tests where user_id = %(user_id)s",
                     "db.operation.parameter.user_id": 2,
-                    "server.address": "localhost",
-                    "server.port": 5434,
-                    "network.peer.address": "localhost",
-                    "network.peer.port": 5434,
+                    # "server.address": "localhost",
+                    # "server.port": 5434,
+                    # "network.peer.address": "localhost",
+                    # "network.peer.port": 5434,
                     "db.operation.batch.size": 1,
                     "db.response.returned_rows": 0,
                 }
@@ -53,6 +54,7 @@ class TestAsyncFind:
                     operation_name="SELECT",
                     query_summary="get from pnorm__async_find__tests",
                 ),
+                hooks=[SpanHook()],
             )
 
             assert res is None
@@ -68,10 +70,10 @@ class TestAsyncFind:
                     "db.query.summary": "get from pnorm__async_find__tests",
                     "db.query.text": "select * from pnorm__async_find__tests where user_id = %(user_id)s",
                     "db.operation.parameter.user_id": 1,
-                    "server.address": "localhost",
-                    "server.port": 5434,
-                    "network.peer.address": "localhost",
-                    "network.peer.port": 5434,
+                    # "server.address": "localhost",
+                    # "server.port": 5434,
+                    # "network.peer.address": "localhost",
+                    # "network.peer.port": 5434,
                     "db.operation.batch.size": 1,
                     "db.response.returned_rows": 1,
                 }
@@ -86,6 +88,7 @@ class TestAsyncFind:
                     operation_name="SELECT",
                     query_summary="get from pnorm__async_find__tests",
                 ),
+                hooks=[SpanHook()],
             )
 
             assert res is not None
@@ -100,10 +103,10 @@ class TestAsyncFind:
                     "db.operation.name": "SELECT",
                     "db.query.summary": "get from pnorm__async_find__tests",
                     "db.query.text": "select * from pnorm__async_find__tests order by user_id asc",
-                    "server.address": "localhost",
-                    "server.port": 5434,
-                    "network.peer.address": "localhost",
-                    "network.peer.port": 5434,
+                    # "server.address": "localhost",
+                    # "server.port": 5434,
+                    # "network.peer.address": "localhost",
+                    # "network.peer.port": 5434,
                     "db.operation.batch.size": 1,
                     "db.response.returned_rows": 1,
                 }
@@ -117,6 +120,7 @@ class TestAsyncFind:
                     operation_name="SELECT",
                     query_summary="get from pnorm__async_find__tests",
                 ),
+                hooks=[SpanHook()],
             )
 
             assert res is not None

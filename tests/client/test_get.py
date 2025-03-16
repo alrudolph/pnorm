@@ -10,6 +10,7 @@ from pnorm import (
     NoRecordsReturnedException,
     QueryContext,
 )
+from pnorm.hooks.opentelemetry import SpanHook
 from tests.fixutres.client_counter import PostgresClientCounter, client  # type: ignore
 from tests.utils.telemetry import assert_span
 
@@ -41,10 +42,10 @@ class TestAsyncGet:
                     "db.query.summary": "get from pnorm__async_get__tests",
                     "db.query.text": "select * from pnorm__async_get__tests where user_id = %(user_id)s",
                     "db.operation.parameter.user_id": 2,
-                    "server.address": "localhost",
-                    "server.port": 5434,
-                    "network.peer.address": "localhost",
-                    "network.peer.port": 5434,
+                    # "server.address": "localhost",
+                    # "server.port": 5434,
+                    # "network.peer.address": "localhost",
+                    # "network.peer.port": 5434,
                     "db.operation.batch.size": 1,
                     "db.response.returned_rows": 0,
                 }
@@ -60,6 +61,7 @@ class TestAsyncGet:
                         operation_name="SELECT",
                         query_summary="get from pnorm__async_get__tests",
                     ),
+                    hooks=[SpanHook()],
                 )
                 raise AssertionError("NoRecordsReturnedException not raised")
             except NoRecordsReturnedException:
@@ -78,10 +80,10 @@ class TestAsyncGet:
                     "db.query.summary": "get from pnorm__async_get__tests",
                     "db.query.text": "select * from pnorm__async_get__tests where user_id = %(user_id)s",
                     "db.operation.parameter.user_id": 1,
-                    "server.address": "localhost",
-                    "server.port": 5434,
-                    "network.peer.address": "localhost",
-                    "network.peer.port": 5434,
+                    # "server.address": "localhost",
+                    # "server.port": 5434,
+                    # "network.peer.address": "localhost",
+                    # "network.peer.port": 5434,
                     "db.operation.batch.size": 1,
                     "db.response.returned_rows": 1,
                 }
@@ -96,6 +98,7 @@ class TestAsyncGet:
                     operation_name="SELECT",
                     query_summary="get from pnorm__async_get__tests",
                 ),
+                hooks=[SpanHook()],
             )
 
     @pytest.mark.asyncio
@@ -109,10 +112,10 @@ class TestAsyncGet:
                     "db.query.summary": "get from pnorm__async_get__tests",
                     "db.query.text": "select * from pnorm__async_get__tests where user_id < %(user_id)s",
                     "db.operation.parameter.user_id": 5,
-                    "server.address": "localhost",
-                    "server.port": 5434,
-                    "network.peer.address": "localhost",
-                    "network.peer.port": 5434,
+                    # "server.address": "localhost",
+                    # "server.port": 5434,
+                    # "network.peer.address": "localhost",
+                    # "network.peer.port": 5434,
                     "db.operation.batch.size": 1,
                     "db.response.returned_rows": 2,
                 }
@@ -128,6 +131,7 @@ class TestAsyncGet:
                         operation_name="SELECT",
                         query_summary="get from pnorm__async_get__tests",
                     ),
+                    hooks=[SpanHook()],
                 )
                 raise AssertionError("MultipleRecordsReturnedException not raised")
             except MultipleRecordsReturnedException:

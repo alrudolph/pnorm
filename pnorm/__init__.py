@@ -8,6 +8,7 @@ from .exceptions import (
     NoRecordsReturnedException,
 )
 from .pnorm_types import PostgresJSON, QueryContext
+from .sync_client import PostgresClient
 
 __all__ = [
     "PostgresCredentials",
@@ -17,6 +18,7 @@ __all__ = [
     "ConnectionNotEstablishedException",
     "MarshallRecordException",
     "PostgresJSON",
+    "PostgresClient",
     "AsyncPostgresClient",
     "QueryContext",
 ]

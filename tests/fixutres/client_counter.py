@@ -74,9 +74,9 @@ class PostgresClientCounter(AsyncPostgresClient):
         return number_of_connections
 
 
-def get_client() -> PostgresClientCounter:
+def get_creds() -> PostgresCredentials:
     load_dotenv()
-    credentials = PostgresCredentials(
+    return PostgresCredentials(
         # dbname=os.environ["TEST_DB_NAME"],
         dbname="postgres",
         user=os.environ["TEST_DB_USER"],
@@ -84,6 +84,10 @@ def get_client() -> PostgresClientCounter:
         host=os.environ["TEST_DB_HOST"],
         port=int(os.environ["TEST_DB_PORT"]),
     )
+
+
+def get_client() -> PostgresClientCounter:
+    credentials = get_creds()
     return PostgresClientCounter(credentials)
 
 

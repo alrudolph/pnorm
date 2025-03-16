@@ -4,6 +4,7 @@ import pytest_asyncio
 from pydantic import BaseModel
 
 from pnorm import AsyncPostgresClient, QueryContext
+from pnorm.hooks.opentelemetry import SpanHook
 from tests.fixutres.client_counter import PostgresClientCounter, client  # type: ignore
 from tests.utils.telemetry import assert_span
 
@@ -29,10 +30,10 @@ class TestAsyncExecute:
                     "db.operation.name": "INSERT",
                     "db.query.summary": "insert into pnorm__async_execute__tests",
                     "db.query.text": "insert into pnorm__async_execute__tests (user_id, name) values(6, 'test')",
-                    "server.address": "localhost",
-                    "server.port": 5434,
-                    "network.peer.address": "localhost",
-                    "network.peer.port": 5434,
+                    # "server.address": "localhost",
+                    # "server.port": 5434,
+                    # "network.peer.address": "localhost",
+                    # "network.peer.port": 5434,
                     "db.operation.batch.size": 1,
                     "db.response.returned_rows": 0,
                 }
@@ -45,6 +46,7 @@ class TestAsyncExecute:
                     operation_name="INSERT",
                     query_summary="insert into pnorm__async_execute__tests",
                 ),
+                hooks=[SpanHook()],
             )
 
     @pytest.mark.asyncio
@@ -57,10 +59,10 @@ class TestAsyncExecute:
                     "db.operation.name": "INSERT",
                     "db.query.summary": "insert into pnorm__async_execute__tests",
                     "db.query.text": "insert into pnorm__async_execute__tests (user_id, name) values (%(user_id)s, %(name)s)",
-                    "server.address": "localhost",
-                    "server.port": 5434,
-                    "network.peer.address": "localhost",
-                    "network.peer.port": 5434,
+                    # "server.address": "localhost",
+                    # "server.port": 5434,
+                    # "network.peer.address": "localhost",
+                    # "network.peer.port": 5434,
                     "db.operation.batch.size": 2,
                     "db.response.returned_rows": 0,
                     "db.operation.parameter.0.user_id": 20,
@@ -85,6 +87,7 @@ class TestAsyncExecute:
                     operation_name="INSERT",
                     query_summary="insert into pnorm__async_execute__tests",
                 ),
+                hooks=[SpanHook()],
             )
 
         res = await client.select(

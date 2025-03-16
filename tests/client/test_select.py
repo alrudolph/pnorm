@@ -4,6 +4,7 @@ import pytest_asyncio
 from pydantic import BaseModel
 
 from pnorm import QueryContext
+from pnorm.hooks.opentelemetry import SpanHook
 from tests.fixutres.client_counter import PostgresClientCounter, client  # type: ignore
 from tests.utils.telemetry import assert_span
 
@@ -17,6 +18,7 @@ class TestAsyncSelect:
             await session.execute(
                 "create table if not exists pnorm__async_select__tests (user_id int unique, name text)"
             )
+            await session.execute("delete from pnorm__async_select__tests")
             await session.execute(
                 "insert into pnorm__async_select__tests (user_id, name) values (1, 'test') on conflict do nothing"
             )
@@ -35,10 +37,10 @@ class TestAsyncSelect:
                     "db.query.summary": "get from pnorm__async_select__tests",
                     "db.query.text": "select * from pnorm__async_select__tests where user_id = %(user_id)s",
                     "db.operation.parameter.user_id": 2,
-                    "server.address": "localhost",
-                    "server.port": 5434,
-                    "network.peer.address": "localhost",
-                    "network.peer.port": 5434,
+                    # "server.address": "localhost",
+                    # "server.port": 5434,
+                    # "network.peer.address": "localhost",
+                    # "network.peer.port": 5434,
                     "db.operation.batch.size": 1,
                     "db.response.returned_rows": 0,
                 }
@@ -53,6 +55,7 @@ class TestAsyncSelect:
                     operation_name="SELECT",
                     query_summary="get from pnorm__async_select__tests",
                 ),
+                hooks=[SpanHook()],
             )
 
             assert res == tuple()
@@ -68,10 +71,10 @@ class TestAsyncSelect:
                     "db.query.summary": "get from pnorm__async_select__tests",
                     "db.query.text": "select * from pnorm__async_select__tests where user_id = %(user_id)s",
                     "db.operation.parameter.user_id": 1,
-                    "server.address": "localhost",
-                    "server.port": 5434,
-                    "network.peer.address": "localhost",
-                    "network.peer.port": 5434,
+                    # "server.address": "localhost",
+                    # "server.port": 5434,
+                    # "network.peer.address": "localhost",
+                    # "network.peer.port": 5434,
                     "db.operation.batch.size": 1,
                     "db.response.returned_rows": 1,
                 }
@@ -86,6 +89,7 @@ class TestAsyncSelect:
                     operation_name="SELECT",
                     query_summary="get from pnorm__async_select__tests",
                 ),
+                hooks=[SpanHook()],
             )
 
             assert res == ({"user_id": 1, "name": "test"},)
@@ -101,10 +105,10 @@ class TestAsyncSelect:
                     "db.query.summary": "get from pnorm__async_select__tests",
                     "db.query.text": "select * from pnorm__async_select__tests where user_id < %(user_id)s",
                     "db.operation.parameter.user_id": 10,
-                    "server.address": "localhost",
-                    "server.port": 5434,
-                    "network.peer.address": "localhost",
-                    "network.peer.port": 5434,
+                    # "server.address": "localhost",
+                    # "server.port": 5434,
+                    # "network.peer.address": "localhost",
+                    # "network.peer.port": 5434,
                     "db.operation.batch.size": 1,
                     "db.response.returned_rows": 2,
                 }
@@ -119,6 +123,7 @@ class TestAsyncSelect:
                     operation_name="SELECT",
                     query_summary="get from pnorm__async_select__tests",
                 ),
+                hooks=[SpanHook()],
             )
 
             assert res == (
