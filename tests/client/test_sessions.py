@@ -1,15 +1,18 @@
 import pytest
 import pytest_asyncio
 
-from tests.fixutres.client_counter import client  # type: ignore
-from tests.fixutres.client_counter import PostgresClientCounter, get_client
+from tests.fixutres.client_counter import (
+    PostgresClientCounter,
+    client,  # noqa: F401
+    get_client,
+)
 
 pytest_plugins = ("pytest_asyncio",)
 
 
 class TestSessions:
     @pytest_asyncio.fixture(autouse=True)
-    async def setup_tests(self, client: PostgresClientCounter) -> None:
+    async def setup_tests(self, client: PostgresClientCounter) -> None: # noqa: F811
         async with client.start_session() as session:
             await session.execute(
                 "create table if not exists pnorm__sessions__tests (user_id int unique, name text)"
@@ -23,7 +26,7 @@ class TestSessions:
 
     @pytest.mark.asyncio
     async def test_only_one_connection_execute(self) -> None:
-        client = get_client()
+        client = get_client() # noqa: F811
 
         async with client.start_session() as session:
             await session.execute(
@@ -35,7 +38,7 @@ class TestSessions:
 
     @pytest.mark.asyncio
     async def test_multiple_statements(self) -> None:
-        client = get_client()
+        client = get_client() # noqa: F811
 
         async with client.start_session() as session:
             await session.find(

@@ -5,7 +5,10 @@ from pydantic import BaseModel
 
 from pnorm import AsyncPostgresClient, QueryContext
 from pnorm.hooks.opentelemetry import SpanHook
-from tests.fixutres.client_counter import PostgresClientCounter, client  # type: ignore
+from tests.fixutres.client_counter import (  # noqa: F401
+    PostgresClientCounter,
+    client,
+)
 from tests.utils.telemetry import assert_span
 
 pytest_plugins = ("pytest_asyncio",)
@@ -13,7 +16,7 @@ pytest_plugins = ("pytest_asyncio",)
 
 class TestAsyncExecute:
     @pytest_asyncio.fixture(autouse=True)
-    async def setup_tests(self, client: PostgresClientCounter) -> None:
+    async def setup_tests(self, client: PostgresClientCounter) -> None: # noqa: F811
         async with client.start_session() as session:
             await session.execute(
                 "create table if not exists pnorm__async_execute__tests (user_id int unique, name text)"
@@ -21,7 +24,7 @@ class TestAsyncExecute:
             await session.execute("delete from pnorm__async_execute__tests")
 
     @pytest.mark.asyncio
-    async def test_execute(self, client: PostgresClientCounter) -> None:
+    async def test_execute(self, client: PostgresClientCounter) -> None: # noqa: F811
         with assert_span(
             {
                 "attributes": {
@@ -50,7 +53,7 @@ class TestAsyncExecute:
             )
 
     @pytest.mark.asyncio
-    async def test_execute_many(self, client: PostgresClientCounter) -> None:
+    async def test_execute_many(self, client: PostgresClientCounter) -> None: # noqa: F811
         with assert_span(
             {
                 "attributes": {
@@ -98,7 +101,7 @@ class TestAsyncExecute:
         assert res == data
 
     @pytest.mark.asyncio
-    async def test_execute_many_pydantic(self, client: PostgresClientCounter) -> None:
+    async def test_execute_many_pydantic(self, client: PostgresClientCounter) -> None: # noqa: F811
         class Params(BaseModel):
             user_id: int
             name: str
@@ -128,10 +131,11 @@ class TestAsyncExecute:
         assert res == data
 
     @pytest.mark.asyncio
-    async def test_db_timeout(self, client: PostgresClientCounter) -> None: ...
+    async def test_db_timeout(self, client: PostgresClientCounter) -> None: # noqa: F811
+        ...
 
     @pytest.mark.asyncio
-    async def test_sql_error(self, client: PostgresClientCounter) -> None:
+    async def test_sql_error(self, client: PostgresClientCounter) -> None: # noqa: F811
         try:
             await client.execute(
                 "insert into pnorm__async_execute__tests (user_id, name) values(6, 'test)",
@@ -148,7 +152,7 @@ class TestAsyncExecute:
             raise AssertionError("Unexpected exception", e)
 
     @pytest.mark.asyncio
-    async def test_type_error(self, client: PostgresClientCounter) -> None:
+    async def test_type_error(self, client: PostgresClientCounter) -> None: # noqa: F811
         try:
             await client.execute(
                 "insert into pnorm__async_execute__tests (user_id, name) values('abc', 'test')",
@@ -165,7 +169,7 @@ class TestAsyncExecute:
             raise AssertionError("Unexpected exception", e)
 
     @pytest.mark.asyncio
-    async def test_params_dict(self, client: PostgresClientCounter) -> None:
+    async def test_params_dict(self, client: PostgresClientCounter) -> None: # noqa: F811
         await client.execute(
             "insert into pnorm__async_execute__tests (user_id, name) values(%(user_id)s, %(name)s)",
             {"user_id": 7, "name": "test-7"},
@@ -180,7 +184,7 @@ class TestAsyncExecute:
         assert value == {"user_id": 7, "name": "test-7"}
 
     @pytest.mark.asyncio
-    async def test_params_pydantic(self, client: PostgresClientCounter) -> None:
+    async def test_params_pydantic(self, client: PostgresClientCounter) -> None: # noqa: F811
         class Params(BaseModel):
             user_id: int
             name: str
@@ -199,7 +203,9 @@ class TestAsyncExecute:
         assert value == {"user_id": 8, "name": "test-8"}
 
     async def get_inserted_value(
-        self, client: AsyncPostgresClient, user_id: int
+        self,
+        client: AsyncPostgresClient,  # noqa: F811
+        user_id: int,
     ) -> dict:
         return await client.get(
             dict,

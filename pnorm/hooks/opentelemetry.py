@@ -9,7 +9,7 @@ from pnorm.pnorm_types import QueryContext
 from .base import BaseHook
 
 if TYPE_CHECKING:
-    from opentelemetry.trace import Span, Tracer
+    from opentelemetry.trace import Span
 
 # TODO: try to import -> failure message
 

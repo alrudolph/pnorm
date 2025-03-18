@@ -2,15 +2,18 @@ import psycopg
 import pytest
 import pytest_asyncio
 
-from tests.fixutres.client_counter import client  # type: ignore
-from tests.fixutres.client_counter import PostgresClientCounter, get_client
+from tests.fixutres.client_counter import (
+    PostgresClientCounter,
+    client,  # noqa: F401
+    get_client,
+)
 
 pytest_plugins = ("pytest_asyncio",)
 
 
 class TestTransactions:
     @pytest_asyncio.fixture(autouse=True)
-    async def setup_tests(self, client: PostgresClientCounter) -> None:
+    async def setup_tests(self, client: PostgresClientCounter) -> None: # noqa: F811
         async with client.start_session() as session:
             await session.execute(
                 "create table if not exists pnorm__transactions__tests (user_id int unique, name text)"
@@ -27,7 +30,7 @@ class TestTransactions:
 
     @pytest.mark.asyncio
     async def test_transaction(self) -> None:
-        client = get_client()
+        client = get_client() # noqa: F811
 
         async with client.start_session() as session:
             async with session.start_transaction() as tx:
@@ -52,7 +55,7 @@ class TestTransactions:
 
     @pytest.mark.asyncio
     async def test_transaction_failure_is_rolled_back(self) -> None:
-        client = get_client()
+        client = get_client() # noqa: F811
 
         async with client.start_session() as session:
             try:
