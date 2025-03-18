@@ -30,7 +30,6 @@ class PostgresClient:
         self,
         credentials: CredentialsProtocol | CredentialsDict | PostgresCredentials,
         auto_create_connection: bool = True,
-        # TODO:
         hooks: Optional[list[BaseHook]] = None,
     ) -> None:
         self._async_client = AsyncPostgresClient(
