@@ -23,7 +23,7 @@ class User(BaseModel):
 
 # If we expect there to be exactly one "john"
 john = await client.get(User, "select * from users where name = %(name)s", {"name": "john"})
-# join: User or throw exception
+# john: User or throw exception
 
 # Get the first "mike" or return None
 mike = await client.find(Users, "select * from users where name = %(name)s", {"name": "mike"})
