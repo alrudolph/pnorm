@@ -9,7 +9,7 @@ pytest_plugins = ("pytest_asyncio",)
 
 class TestSessions:
     @pytest_asyncio.fixture(autouse=True)
-    async def setup_tests(self, client: PostgresClientCounter):
+    async def setup_tests(self, client: PostgresClientCounter) -> None:
         async with client.start_session() as session:
             await session.execute(
                 "create table if not exists pnorm__sessions__tests (user_id int unique, name text)"
@@ -22,7 +22,7 @@ class TestSessions:
             )
 
     @pytest.mark.asyncio
-    async def test_only_one_connection_execute(self):
+    async def test_only_one_connection_execute(self) -> None:
         client = get_client()
 
         async with client.start_session() as session:
@@ -34,7 +34,7 @@ class TestSessions:
         assert client.check_connections() == 1
 
     @pytest.mark.asyncio
-    async def test_multiple_statements(self):
+    async def test_multiple_statements(self) -> None:
         client = get_client()
 
         async with client.start_session() as session:

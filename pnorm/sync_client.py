@@ -30,15 +30,14 @@ class PostgresClient:
         self,
         credentials: CredentialsProtocol | CredentialsDict | PostgresCredentials,
         auto_create_connection: bool = True,
-        # TODO:
         hooks: Optional[list[BaseHook]] = None,
     ) -> None:
-        self._async_client = AsyncPostgresClient(credentials)
-        self.connection: AsyncConnection[DictRow] | None = None
-        self.auto_create_connection = r.check_bool(
-            "auto_create_connection",
+        self._async_client = AsyncPostgresClient(
+            credentials,
             auto_create_connection,
+            hooks,
         )
+        self.connection: AsyncConnection[DictRow] | None = None
         self.tracer = trace.get_tracer("pnorm.sync_client")
         self.cursor: SingleCommitCursor | TransactionCursor = SingleCommitCursor(
             self._async_client,
@@ -173,13 +172,33 @@ class PostgresClient:
         self,
         *,
         schema: Optional[str] = None,
-    ) -> Generator[AsyncPostgresClient, None, None]:
-        ctx = self._async_client.start_session(schema=schema)
-        with asyncio.run(ctx) as client:
-            yield client
+    ) -> Generator[PostgresClient, None, None]:
+        close_connection_after_use = False
+
+        if self.connection is None:
+            asyncio.run(self._async_client._create_connection())
+            close_connection_after_use = True
+
+        if schema is not None:
+            self.set_schema(schema=schema)
+
+        try:
+            yield self
+        except:
+            asyncio.run(self._async_client._rollback())
+            raise
+        finally:
+            if self.connection is not None and close_connection_after_use:
+                asyncio.run(self._async_client._end_connection())
 
     @contextmanager
-    def start_transaction(self) -> Generator[AsyncPostgresClient, None, None]:
-        ctx = self._async_client.start_transaction()
-        with asyncio.run(ctx) as client:
-            yield client
+    def start_transaction(self) -> Generator[PostgresClient, None, None]:
+        self._async_client._create_transaction()
+
+        try:
+            yield self
+        except:
+            asyncio.run(self._async_client._rollback())
+            raise
+        finally:
+            asyncio.run(self._async_client._end_transaction())

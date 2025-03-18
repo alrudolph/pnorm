@@ -10,7 +10,7 @@ pytest_plugins = ("pytest_asyncio",)
 
 class TestTransactions:
     @pytest_asyncio.fixture(autouse=True)
-    async def setup_tests(self, client: PostgresClientCounter):
+    async def setup_tests(self, client: PostgresClientCounter) -> None:
         async with client.start_session() as session:
             await session.execute(
                 "create table if not exists pnorm__transactions__tests (user_id int unique, name text)"
@@ -26,7 +26,7 @@ class TestTransactions:
             )
 
     @pytest.mark.asyncio
-    async def test_transaction(self):
+    async def test_transaction(self) -> None:
         client = get_client()
 
         async with client.start_session() as session:
@@ -51,7 +51,7 @@ class TestTransactions:
         assert client.check_connections() == 1
 
     @pytest.mark.asyncio
-    async def test_transaction_failure_is_rolled_back(self):
+    async def test_transaction_failure_is_rolled_back(self) -> None:
         client = get_client()
 
         async with client.start_session() as session:
