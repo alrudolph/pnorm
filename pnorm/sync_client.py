@@ -175,7 +175,7 @@ class PostgresClient:
         self,
         *,
         schema: Optional[str] = None,
-    ) -> Generator[AsyncPostgresClient, None, None]:
+    ) -> Generator[PostgresClient, None, None]:
         close_connection_after_use = False
 
         if self.connection is None:
@@ -195,7 +195,7 @@ class PostgresClient:
                 asyncio.run(self._async_client._end_connection())
 
     @contextmanager
-    def start_transaction(self) -> Generator[AsyncPostgresClient, None, None]:
+    def start_transaction(self) -> Generator[PostgresClient, None, None]:
         self._async_client._create_transaction()
 
         try:
