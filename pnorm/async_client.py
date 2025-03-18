@@ -41,9 +41,19 @@ class AsyncPostgresClient:
         self,
         credentials: CredentialsProtocol | CredentialsDict | PostgresCredentials,
         auto_create_connection: bool = True,
-        # TODO:
         hooks: Optional[list[BaseHook]] = None,
     ) -> None:
+        """Async Postgres Client
+
+        Parameters
+        ----------
+        credentials : CredentialsProtocol | CredentialsDict | PostgresCredentials
+            Credentials to connect to the Postgres database
+        auto_create_connection : bool = True
+            Whether to automatically create a connection when executing a query
+        hooks: Optional[list[BaseHook]] = None
+            List of hooks to run before and after the query. See pnorm.hooks.opentelemetry for examples
+        """
         # Want to keep as the PostgresCredentials class for SecretStr
         if isinstance(credentials, PostgresCredentials):
             self.credentials = credentials
@@ -64,6 +74,7 @@ class AsyncPostgresClient:
         self.default_hooks = hooks
 
     async def set_schema(self, *, schema: str) -> None:
+        """Set the schema for the current session"""
         schema = r.check_str("schema", schema)
         self.user_set_schema = schema
         await self.execute(f"select set_config('search_path', '{schema}', false)")
@@ -79,7 +90,6 @@ class AsyncPostgresClient:
         *,
         timeout: Optional[float] = None,
         query_context: Optional[QueryContext] = None,
-        # TODO:
         hooks: Optional[list[BaseHook]] = None,
     ) -> MappingT: ...
 
@@ -94,7 +104,6 @@ class AsyncPostgresClient:
         *,
         timeout: Optional[float] = None,
         query_context: Optional[QueryContext] = None,
-        # TODO:
         hooks: Optional[list[BaseHook]] = None,
     ) -> BaseModelT: ...
 
@@ -108,7 +117,6 @@ class AsyncPostgresClient:
         *,
         timeout: Optional[float] = None,
         query_context: Optional[QueryContext] = None,
-        # TODO:
         hooks: Optional[list[BaseHook]] = None,
     ) -> BaseModelMappingT:
         """Always returns exactly one record or raises an exception
@@ -134,6 +142,8 @@ class AsyncPostgresClient:
             Amount of time in seconds to wait for the query to complete. Default to no timeout
         query_context : Optional[QueryContext] = None
             Query metadata for telemetry purposes
+        hooks: Optional[list[BaseHook]] = None
+            List of hooks to run before and after the query. See pnorm.hooks.opentelemetry for examples
 
         Raises
         ------
@@ -206,7 +216,6 @@ class AsyncPostgresClient:
         combine_into_return_model: bool = False,
         timeout: Optional[float] = None,
         query_context: Optional[QueryContext] = None,
-        # TODO:
         hooks: Optional[list[BaseHook]] = None,
     ) -> MappingT: ...
 
@@ -221,7 +230,6 @@ class AsyncPostgresClient:
         combine_into_return_model: bool = False,
         timeout: Optional[float] = None,
         query_context: Optional[QueryContext] = None,
-        # TODO:
         hooks: Optional[list[BaseHook]] = None,
     ) -> BaseModelT: ...
 
@@ -236,7 +244,6 @@ class AsyncPostgresClient:
         combine_into_return_model: bool = False,
         timeout: Optional[float] = None,
         query_context: Optional[QueryContext] = None,
-        # TODO:
         hooks: Optional[list[BaseHook]] = None,
     ) -> MappingT | None: ...
 
@@ -251,7 +258,6 @@ class AsyncPostgresClient:
         combine_into_return_model: bool = False,
         timeout: Optional[float] = None,
         query_context: Optional[QueryContext] = None,
-        # TODO:
         hooks: Optional[list[BaseHook]] = None,
     ) -> BaseModelT | None: ...
 
@@ -265,7 +271,6 @@ class AsyncPostgresClient:
         combine_into_return_model: bool = False,
         timeout: Optional[float] = None,
         query_context: Optional[QueryContext] = None,
-        # TODO:
         hooks: Optional[list[BaseHook]] = None,
     ) -> BaseModelT | MappingT | None:
         """Return the first result if it exists
@@ -289,6 +294,8 @@ class AsyncPostgresClient:
             Amount of time in seconds to wait for the query to complete. Default to no timeout
         query_context : Optional[QueryContext] = None
             Query metadata for telemetry purposes
+        hooks: Optional[list[BaseHook]] = None
+            List of hooks to run before and after the query. See pnorm.hooks.opentelemetry for examples
 
         Returns
         -------
@@ -342,7 +349,6 @@ class AsyncPostgresClient:
         *,
         timeout: Optional[float] = None,
         query_context: Optional[QueryContext] = None,
-        # TODO:
         hooks: Optional[list[BaseHook]] = None,
     ) -> tuple[BaseModelT, ...]: ...
 
@@ -355,7 +361,6 @@ class AsyncPostgresClient:
         *,
         timeout: Optional[float] = None,
         query_context: Optional[QueryContext] = None,
-        # TODO:
         hooks: Optional[list[BaseHook]] = None,
     ) -> tuple[MappingT, ...]: ...
 
@@ -367,7 +372,6 @@ class AsyncPostgresClient:
         *,
         timeout: Optional[float] = None,
         query_context: Optional[QueryContext] = None,
-        # TODO:
         hooks: Optional[list[BaseHook]] = None,
     ) -> tuple[BaseModelT, ...] | tuple[MappingT, ...]:
         """Return all rows
@@ -384,6 +388,8 @@ class AsyncPostgresClient:
             Amount of time in seconds to wait for the query to complete. Default to no timeout
         query_context : Optional[QueryContext] = None
             Query metadata for telemetry purposes
+        hooks: Optional[list[BaseHook]] = None
+            List of hooks to run before and after the query. See pnorm.hooks.opentelemetry for examples
 
         Note
         ----
@@ -430,7 +436,6 @@ class AsyncPostgresClient:
         *,
         timeout: Optional[float] = None,
         query_context: Optional[QueryContext] = None,
-        # TODO:
         hooks: Optional[list[BaseHook]] = None,
     ) -> None:
         """Execute a SQL query
@@ -445,6 +450,8 @@ class AsyncPostgresClient:
             Amount of time in seconds to wait for the query to complete. Default to no timeout
         query_context : Optional[QueryContext] = None
             Query metadata for telemetry purposes
+        hooks: Optional[list[BaseHook]] = None
+            List of hooks to run before and after the query. See pnorm.hooks.opentelemetry for examples
         """
         query_as_string = await self._query_as_string(query)
 
@@ -486,7 +493,12 @@ class AsyncPostgresClient:
         *,
         schema: Optional[str] = None,
     ) -> AsyncGenerator[AsyncPostgresClient, None]:
-        """
+        """Start database session
+
+        Parameters
+        ----------
+        schema : Optional[str] = None
+            Schema to set for the session
 
         Examples
         --------
@@ -517,7 +529,7 @@ class AsyncPostgresClient:
 
     @asynccontextmanager
     async def start_transaction(self) -> AsyncGenerator[AsyncPostgresClient, None]:
-        """
+        """Start a transaction
 
         Examples
         --------
@@ -609,68 +621,7 @@ class AsyncPostgresClient:
                 h = cast(list[BaseHook], hooks)
                 return df + h
 
-    # TODO: instead of dict[str, Any] maybe dict[str, str | int | float | bool ... ] ? datetime, uuid, dict, list ...
-    # def _set_span_attributes(
-    #     self,
-    #     span: Span,
-    #     query_as_string: str,
-    #     query_params: Optional[dict[str, Any] | Sequence[dict[str, Any]]] = None,
-    #     query_context: Optional[QueryContext] = None,
-    # ) -> None:
-    #     span.set_attribute("db.system.name", "postgresql")
-
-    #     if self.user_set_schema is not None:
-    #         span.set_attribute("db.namespace", self.user_set_schema)
-
-    #     if query_context is not None:
-    #         if query_context.primary_table_name is not None:
-    #             span.set_attribute(
-    #                 "db.collection.name",
-    #                 query_context.primary_table_name,
-    #             )
-
-    #         if query_context.operation_name is not None:
-    #             span.set_attribute("db.operation.name", query_context.operation_name)
-
-    #         if query_context.query_summary is not None:
-    #             span.set_attribute("db.query.summary", query_context.query_summary)
-
-    #     span.set_attribute(
-    #         "db.query.text",
-    #         query_as_string,
-    #     )  # TODO: remove repeated whitespace, newlines etc...
-    #     span.set_attribute("server.address", self.credentials.host)
-    #     span.set_attribute("server.port", self.credentials.port)
-    #     span.set_attribute("network.peer.address", self.credentials.host)
-    #     span.set_attribute("network.peer.port", self.credentials.port)
-    #     span.set_attribute("db.operation.batch.size", 1)
-
-    #     if query_params is None:
-    #         return
-
-    #     if isinstance(query_params, Mapping):
-    #         for key, value in query_params.items():
-    #             # TODO: secret values?
-    #             # either have pydantic models with SecretStr
-    #             # or in context have a list of values to replace with **
-    #             if isinstance(value, str | bytes | int | float | bool):
-    #                 span.set_attribute(f"db.operation.parameter.{key}", value)
-    #             else:
-    #                 span.set_attribute(f"db.operation.parameter.{key}", str(value))
-
-    #         return
-
-    #     # TODO: this could be bad for inserting data... maybe have a way to turn off in execute
-    #     # or have a way to specify only certain parameters are being included
-    #     for i, params in enumerate(query_params):
-    #         for key, value in params.items():
-    #             # TODO: secret values?
-    #             # either have pydantic models with SecretStr
-    #             # or in context have a list of values to replace with **
-    #             if isinstance(value, str | bytes | int | float | bool):
-    #                 span.set_attribute(f"db.operation.parameter.{i}.{key}", value)
-    #             else:
-    #                 span.set_attribute(f"db.operation.parameter.{i}.{key}", str(value))
+        raise ValueError("UNREACHABLE: Invalid hooks supplied")
 
 
 def _apply_pre_hooks(

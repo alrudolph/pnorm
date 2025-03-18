@@ -32,6 +32,16 @@ class TestSyncMethods:
 
         assert res == {"user_id": 1, "name": "test"}
 
+    def test_sync_find(self) -> None:
+        client = PostgresClient(get_creds())
+        res = client.find(
+            dict,
+            "select * from pnorm__sync__tests where user_id = %(user_id)s",
+            {"user_id": 1},
+        )
+
+        assert res == {"user_id": 1, "name": "test"}
+
     def test_sync_select(self) -> None:
         client = PostgresClient(get_creds())
         res = client.select(
