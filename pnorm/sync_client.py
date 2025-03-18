@@ -34,13 +34,11 @@ class PostgresClient:
         hooks: Optional[list[BaseHook]] = None,
     ) -> None:
         self._async_client = AsyncPostgresClient(
-            credentials, auto_create_connection, hooks
+            credentials,
+            auto_create_connection,
+            hooks,
         )
         self.connection: AsyncConnection[DictRow] | None = None
-        # self.auto_create_connection = r.check_bool(
-        #     "auto_create_connection",
-        #     auto_create_connection,
-        # )
         self.tracer = trace.get_tracer("pnorm.sync_client")
         self.cursor: SingleCommitCursor | TransactionCursor = SingleCommitCursor(
             self._async_client,
