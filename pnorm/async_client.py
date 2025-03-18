@@ -609,68 +609,7 @@ class AsyncPostgresClient:
                 h = cast(list[BaseHook], hooks)
                 return df + h
 
-    # TODO: instead of dict[str, Any] maybe dict[str, str | int | float | bool ... ] ? datetime, uuid, dict, list ...
-    # def _set_span_attributes(
-    #     self,
-    #     span: Span,
-    #     query_as_string: str,
-    #     query_params: Optional[dict[str, Any] | Sequence[dict[str, Any]]] = None,
-    #     query_context: Optional[QueryContext] = None,
-    # ) -> None:
-    #     span.set_attribute("db.system.name", "postgresql")
-
-    #     if self.user_set_schema is not None:
-    #         span.set_attribute("db.namespace", self.user_set_schema)
-
-    #     if query_context is not None:
-    #         if query_context.primary_table_name is not None:
-    #             span.set_attribute(
-    #                 "db.collection.name",
-    #                 query_context.primary_table_name,
-    #             )
-
-    #         if query_context.operation_name is not None:
-    #             span.set_attribute("db.operation.name", query_context.operation_name)
-
-    #         if query_context.query_summary is not None:
-    #             span.set_attribute("db.query.summary", query_context.query_summary)
-
-    #     span.set_attribute(
-    #         "db.query.text",
-    #         query_as_string,
-    #     )  # TODO: remove repeated whitespace, newlines etc...
-    #     span.set_attribute("server.address", self.credentials.host)
-    #     span.set_attribute("server.port", self.credentials.port)
-    #     span.set_attribute("network.peer.address", self.credentials.host)
-    #     span.set_attribute("network.peer.port", self.credentials.port)
-    #     span.set_attribute("db.operation.batch.size", 1)
-
-    #     if query_params is None:
-    #         return
-
-    #     if isinstance(query_params, Mapping):
-    #         for key, value in query_params.items():
-    #             # TODO: secret values?
-    #             # either have pydantic models with SecretStr
-    #             # or in context have a list of values to replace with **
-    #             if isinstance(value, str | bytes | int | float | bool):
-    #                 span.set_attribute(f"db.operation.parameter.{key}", value)
-    #             else:
-    #                 span.set_attribute(f"db.operation.parameter.{key}", str(value))
-
-    #         return
-
-    #     # TODO: this could be bad for inserting data... maybe have a way to turn off in execute
-    #     # or have a way to specify only certain parameters are being included
-    #     for i, params in enumerate(query_params):
-    #         for key, value in params.items():
-    #             # TODO: secret values?
-    #             # either have pydantic models with SecretStr
-    #             # or in context have a list of values to replace with **
-    #             if isinstance(value, str | bytes | int | float | bool):
-    #                 span.set_attribute(f"db.operation.parameter.{i}.{key}", value)
-    #             else:
-    #                 span.set_attribute(f"db.operation.parameter.{i}.{key}", str(value))
+        raise ValueError("UNREACHABLE: Invalid hooks supplied")
 
 
 def _apply_pre_hooks(
