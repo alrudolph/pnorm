@@ -6,8 +6,6 @@ from contextlib import asynccontextmanager
 from typing import Any, AsyncGenerator, Literal, Optional, cast, overload
 
 import psycopg
-from opentelemetry import trace
-from opentelemetry.trace import Span
 from psycopg import AsyncConnection
 from psycopg.rows import DictRow, dict_row
 from pydantic import BaseModel
@@ -59,10 +57,8 @@ class AsyncPostgresClient:
             "auto_create_connection",
             auto_create_connection,
         )
-        self.tracer = trace.get_tracer("pnorm.async_client")
         self.cursor: SingleCommitCursor | TransactionCursor = SingleCommitCursor(
             self,
-            self.tracer,
         )
         self.user_set_schema: str | None = None
         self.default_hooks = hooks
@@ -565,11 +561,11 @@ class AsyncPostgresClient:
         await self.connection.rollback()
 
     def _create_transaction(self) -> None:
-        self.cursor = TransactionCursor(self, self.tracer)
+        self.cursor = TransactionCursor(self)
 
     async def _end_transaction(self) -> None:
         await self.cursor.commit()
-        self.cursor = SingleCommitCursor(self, self.tracer)
+        self.cursor = SingleCommitCursor(self)
 
     @asynccontextmanager
     async def _handle_auto_connection(self) -> AsyncGenerator[None, None]:
