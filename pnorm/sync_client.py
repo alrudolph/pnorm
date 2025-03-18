@@ -5,7 +5,6 @@ from collections.abc import Sequence
 from contextlib import contextmanager
 from typing import Generator, Optional, cast, overload
 
-from opentelemetry import trace
 from psycopg import AsyncConnection
 from psycopg.rows import DictRow
 from rcheck import r
@@ -38,10 +37,8 @@ class PostgresClient:
             hooks,
         )
         self.connection: AsyncConnection[DictRow] | None = None
-        self.tracer = trace.get_tracer("pnorm.sync_client")
         self.cursor: SingleCommitCursor | TransactionCursor = SingleCommitCursor(
             self._async_client,
-            self.tracer,
         )
         self.user_set_schema: str | None = None
 

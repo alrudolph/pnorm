@@ -1,9 +1,8 @@
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
-from typing import TYPE_CHECKING, AsyncGenerator, cast
+from typing import TYPE_CHECKING, AsyncGenerator, Optional, cast
 
-from opentelemetry.trace import Tracer
 from psycopg import AsyncConnection, AsyncCursor
 from psycopg.rows import DictRow
 
@@ -14,10 +13,9 @@ if TYPE_CHECKING:
 
 
 class TransactionCursor:
-    def __init__(self, client: AsyncPostgresClient, tracer: Tracer):
+    def __init__(self, client: AsyncPostgresClient) -> None:
         self.client = client
         self.cursor: AsyncCursor[DictRow] | None = None
-        self.tracer = tracer
 
     def _ensure_cursor(self) -> None:
         if self.cursor is not None:
@@ -48,9 +46,8 @@ class TransactionCursor:
 
 
 class SingleCommitCursor:
-    def __init__(self, client: AsyncPostgresClient, tracer: Tracer):
+    def __init__(self, client: AsyncPostgresClient) -> None:
         self.client = client
-        self.tracer = tracer
 
     @asynccontextmanager
     async def __call__(
