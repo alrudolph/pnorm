@@ -11,16 +11,18 @@ jobs:
     steps:
       - uses: actions/checkout@v3
 
-      - name: Install poetry
-        run: pipx install poetry
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
 
-      - uses: actions/setup-python@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
-          python-version: 3.11
+          python-version-file: "pyproject.toml"
 
       - name: Installs dependencies
-        run: poetry install --without dev
+        run: uv sync --all-extras --dev
 
       - name: Publish package
         run: |
-          poetry publish --build --username __token__ --password ${{ secrets.PYPI_TOKEN }}
+          uv build
+          uv publish --username __token__ --password ${{ secrets.PYPI_TOKEN }}

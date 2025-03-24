@@ -1,5 +1,5 @@
 from contextlib import asynccontextmanager
-from typing import Annotated, AsyncGenerator
+from typing import Annotated, Any, AsyncGenerator
 
 import uvicorn
 from fastapi import Depends, FastAPI, Response
@@ -59,7 +59,7 @@ ClientDep = Annotated[AsyncPostgresClient, Depends(client)]
 
 
 @app.get("/")
-async def read_root(db: ClientDep):
+async def read_root(db: ClientDep) -> dict[str, dict[str, Any]]:
     res = await db.find(
         dict,
         "select * from test where a = %(a)s;",

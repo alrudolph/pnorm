@@ -5,7 +5,10 @@ from pydantic import BaseModel
 
 from pnorm import QueryContext
 from pnorm.hooks.opentelemetry import SpanHook
-from tests.fixutres.client_counter import PostgresClientCounter, client  # type: ignore
+from tests.fixutres.client_counter import (  # noqa: F401
+    PostgresClientCounter,
+    client,
+)
 from tests.utils.telemetry import assert_span
 
 pytest_plugins = ("pytest_asyncio",)
@@ -13,7 +16,7 @@ pytest_plugins = ("pytest_asyncio",)
 
 class TestAsyncSelect:
     @pytest_asyncio.fixture(autouse=True)
-    async def setup_tests(self, client: PostgresClientCounter) -> None:
+    async def setup_tests(self, client: PostgresClientCounter) -> None:  # noqa: F811
         async with client.start_session() as session:
             await session.execute(
                 "create table if not exists pnorm__async_select__tests (user_id int unique, name text)"
@@ -27,7 +30,7 @@ class TestAsyncSelect:
             )
 
     @pytest.mark.asyncio
-    async def test_no_records(self, client: PostgresClientCounter) -> None:
+    async def test_no_records(self, client: PostgresClientCounter) -> None:  # noqa: F811
         with assert_span(
             {
                 "attributes": {
@@ -61,7 +64,7 @@ class TestAsyncSelect:
             assert res == tuple()
 
     @pytest.mark.asyncio
-    async def test_one_record(self, client: PostgresClientCounter) -> None:
+    async def test_one_record(self, client: PostgresClientCounter) -> None:  # noqa: F811
         with assert_span(
             {
                 "attributes": {
@@ -95,7 +98,7 @@ class TestAsyncSelect:
             assert res == ({"user_id": 1, "name": "test"},)
 
     @pytest.mark.asyncio
-    async def test_multiple_records(self, client: PostgresClientCounter) -> None:
+    async def test_multiple_records(self, client: PostgresClientCounter) -> None:  # noqa: F811
         with assert_span(
             {
                 "attributes": {
@@ -132,7 +135,7 @@ class TestAsyncSelect:
             )
 
     @pytest.mark.asyncio
-    async def test_dict(self, client: PostgresClientCounter) -> None:
+    async def test_dict(self, client: PostgresClientCounter) -> None:  # noqa: F811
         res = await client.select(
             dict,
             "select * from pnorm__async_select__tests where user_id = %(user_id)s",
@@ -147,7 +150,7 @@ class TestAsyncSelect:
         assert res == ({"user_id": 1, "name": "test"},)
 
     @pytest.mark.asyncio
-    async def test_pydantic(self, client: PostgresClientCounter) -> None:
+    async def test_pydantic(self, client: PostgresClientCounter) -> None:  # noqa: F811
         class ResponseModel(BaseModel):
             user_id: int
             name: str
@@ -166,10 +169,11 @@ class TestAsyncSelect:
         assert res == (ResponseModel(user_id=1, name="test"),)
 
     @pytest.mark.asyncio
-    async def test_db_timeout(self, client: PostgresClientCounter) -> None: ...
+    async def test_db_timeout(self, client: PostgresClientCounter) -> None:  # noqa: F811
+        ...
 
     @pytest.mark.asyncio
-    async def test_sql_error(self, client: PostgresClientCounter) -> None:
+    async def test_sql_error(self, client: PostgresClientCounter) -> None:  # noqa: F811
         try:
             await client.select(
                 dict,
@@ -184,11 +188,11 @@ class TestAsyncSelect:
             raise AssertionError("psycopg.errors.UndefinedFunction not raised")
         except psycopg.errors.UndefinedFunction:
             ...
-        except:
+        except Exception:
             raise AssertionError("Unexpected exception")
 
     @pytest.mark.asyncio
-    async def test_type_error(self, client: PostgresClientCounter) -> None:
+    async def test_type_error(self, client: PostgresClientCounter) -> None:  # noqa: F811
         try:
             await client.select(
                 dict,
@@ -203,11 +207,11 @@ class TestAsyncSelect:
             raise AssertionError("psycopg.errors.UndefinedFunction not raised")
         except psycopg.errors.UndefinedFunction:
             ...
-        except Exception as e:
+        except Exception:
             ...
 
     @pytest.mark.asyncio
-    async def test_params_dict(self, client: PostgresClientCounter) -> None:
+    async def test_params_dict(self, client: PostgresClientCounter) -> None:  # noqa: F811
         response = await client.select(
             dict,
             "select * from pnorm__async_select__tests where user_id = %(user_id)s",
@@ -222,7 +226,7 @@ class TestAsyncSelect:
         assert response == ({"user_id": 1, "name": "test"},)
 
     @pytest.mark.asyncio
-    async def test_params_pydantic(self, client: PostgresClientCounter) -> None:
+    async def test_params_pydantic(self, client: PostgresClientCounter) -> None:  # noqa: F811
         class Params(BaseModel):
             user_id: int
 

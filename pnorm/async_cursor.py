@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
-from typing import TYPE_CHECKING, AsyncGenerator, Optional, cast
+from typing import TYPE_CHECKING, AsyncGenerator, cast
 
 from psycopg import AsyncConnection, AsyncCursor
 from psycopg.rows import DictRow
