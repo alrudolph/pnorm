@@ -1,6 +1,6 @@
 [project]
 name = "pnorm"
-version = "0.0.1"
+version = "0.0.2"
 description = "Postgres Not an ORM"
 authors = [{ name = "Alex Rudolph", email = "alex@voker.ai" }]
 requires-python = "~=3.11"
