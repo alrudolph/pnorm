@@ -91,6 +91,7 @@ class AsyncPostgresClient:
         timeout: Optional[float] = None,
         query_context: Optional[QueryContext] = None,
         hooks: Optional[list[BaseHook]] = None,
+        err_on_not_found: Optional[Exception | type[Exception]] = None,
     ) -> MappingT: ...
 
     @overload
@@ -105,6 +106,7 @@ class AsyncPostgresClient:
         timeout: Optional[float] = None,
         query_context: Optional[QueryContext] = None,
         hooks: Optional[list[BaseHook]] = None,
+        err_on_not_found: Optional[Exception | type[Exception]] = None,
     ) -> BaseModelT: ...
 
     async def get(
@@ -118,6 +120,7 @@ class AsyncPostgresClient:
         timeout: Optional[float] = None,
         query_context: Optional[QueryContext] = None,
         hooks: Optional[list[BaseHook]] = None,
+        err_on_not_found: Optional[Exception | type[Exception]] = None,
     ) -> BaseModelMappingT:
         """Always returns exactly one record or raises an exception
 
@@ -186,9 +189,13 @@ class AsyncPostgresClient:
         single: MutableMapping[str, Any]
         if len(query_result) == 0:
             if default is None:
-                msg = f"Did not receive any records for query: {query_as_string}"
                 _apply_post_hooks(hooks, "error", 0)
-                raise NoRecordsReturnedException(msg)
+
+                if err_on_not_found is None:
+                    msg = f"Did not receive any records for query: {query_as_string}"
+                    raise NoRecordsReturnedException(msg)
+                else:
+                    raise err_on_not_found
 
             _apply_post_hooks(hooks, "success", 0)
             if isinstance(default, BaseModel):
